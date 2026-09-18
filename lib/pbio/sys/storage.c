@@ -23,6 +23,14 @@
 #include <pbsys/status.h>
 #include <pbsys/storage.h>
 
+// The maximum size of one program is the program storage divided by this
+// value. By default, it equals the number of slots so that all slots can hold
+// a program of the maximum size at the same time. If it is smaller, fewer
+// programs of the maximum size fit, and the total size is checked on download.
+#ifndef PBSYS_CONFIG_STORAGE_PROGRAM_SIZE_DIVISOR
+#define PBSYS_CONFIG_STORAGE_PROGRAM_SIZE_DIVISOR (PBSYS_CONFIG_STORAGE_NUM_SLOTS)
+#endif
+
 /**
  * State of incoming program data.
  */
@@ -88,7 +96,16 @@ static uint32_t pbsys_storage_get_used_program_data_size(void) {
 }
 
 /**
- * Gets the maximum size of all programs that can be downloaded to the hub.
+ * Gets the total size available for all programs combined.
+ *
+ * @returns             Program storage size in bytes.
+ */
+static uint32_t pbsys_storage_get_program_storage_size(void) {
+    return pbdrv_block_device_get_writable_size() - sizeof(pbsys_storage_data_map_t);
+}
+
+/**
+ * Gets the maximum size of one program that can be downloaded to the hub.
  *
  * @returns             Maximum program size in bytes.
  */
@@ -97,7 +114,20 @@ uint32_t pbsys_storage_get_maximum_program_size(void) {
     // slots is the limiting factor. However, then we would need to inform the
     // host dynamically about the available size of the current slot. Until
     // we have that, it is safer to use an absolute limit.
-    return ((pbdrv_block_device_get_writable_size() - sizeof(pbsys_storage_data_map_t)) / PBSYS_CONFIG_STORAGE_NUM_SLOTS / sizeof(uint32_t)) * sizeof(uint32_t);
+    return (pbsys_storage_get_program_storage_size() / PBSYS_CONFIG_STORAGE_PROGRAM_SIZE_DIVISOR / sizeof(uint32_t)) * sizeof(uint32_t);
+}
+
+/**
+ * Tests if a program in the incoming slot fits in the remaining storage.
+ *
+ * The incoming slot is always stored last, so it may use everything after
+ * its offset.
+ *
+ * @param [in]  size    Size of the incoming program data in bytes.
+ * @returns             @c true if it fits, @c false otherwise.
+ */
+static bool pbsys_storage_incoming_program_fits(uint32_t size) {
+    return map->slot_info[download_state.slot].offset + size <= pbsys_storage_get_program_storage_size();
 }
 
 /**
@@ -288,6 +318,11 @@ pbio_error_t pbsys_storage_set_program_size(uint32_t new_size) {
     // Word align the data.
     new_size = (new_size + 3) / 4 * 4;
 
+    // All programs together must fit in storage.
+    if (!pbsys_storage_incoming_program_fits(new_size)) {
+        return PBIO_ERROR_INVALID_ARG;
+    }
+
     // Set information for the incoming slot.
     map->slot_info[download_state.slot].size = new_size;
 
@@ -327,6 +362,11 @@ pbio_error_t pbsys_storage_set_program_data(uint32_t offset, const void *data, u
     // A program transfer should have been started.
     if (!pbsys_status_test(PBIO_PYBRICKS_STATUS_FILE_IO_IN_PROGRESS)) {
         return PBIO_ERROR_INVALID_OP;
+    }
+
+    // All programs together must fit in storage.
+    if (!pbsys_storage_incoming_program_fits(offset + size)) {
+        return PBIO_ERROR_INVALID_ARG;
     }
 
     // New data means we're still going, so don't time out.
