@@ -13,6 +13,7 @@
 #include <pbio/light_animation.h>
 #include <pbio/motor_process.h>
 #include <pbio/port_interface.h>
+#include <pbio/sound_mp3.h>
 
 #define DEBUG 0
 
@@ -58,6 +59,8 @@ void pbio_deinit(void) {
  */
 void pbio_main_soft_stop(void) {
     pbio_port_stop_user_actions(false);
+    // Stops using memory from the application before it is freed.
+    pbio_sound_mp3_stop();
     pbdrv_sound_stop();
 }
 

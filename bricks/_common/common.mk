@@ -614,6 +614,17 @@ PBIO_SRC_C += $(BUILD)/font_terminus_normal_16.c
 PBIO_SRC_C += $(BUILD)/font_mono_8x5_8.c
 endif
 
+# Experimental MP3 playback with Speaker.play_mp3(). Set PB_MP3 to the path of
+# an MP3 file (without spaces) to embed it in the firmware. Run "make clean"
+# after adding or removing PB_MP3.
+ifneq ($(PB_MP3),)
+CFLAGS += -DPBIO_CONFIG_SOUND_MP3=1
+CFLAGS += -I$(PBTOP)/lib/minimp3
+PBIO_SRC_C += $(BUILD)/pb_mp3_data.c
+# Decoding speed matters more than size here.
+$(BUILD)/lib/pbio/src/sound_mp3.o: CFLAGS += -O2
+endif
+
 OBJ = $(PY_O)
 OBJ += $(addprefix $(BUILD)/, $(SRC_S:.s=.o))
 OBJ += $(addprefix $(BUILD)/, $(PY_EXTRA_SRC_C:.c=.o))
@@ -777,6 +788,10 @@ $(BUILD)/font_mono_8x5_8.c: $(PBTOP)/lib/pbio/src/image/fonts/mono_8x5.png $(FON
 $(BUILD)/hmi_ev3_ui_credits.c: $(CREDITS_CONVERT)
 	$(ECHO) "Generating EV3 credits file"
 	$(Q)$(PYTHON) $(CREDITS_CONVERT) $(BUILD)
+
+$(BUILD)/pb_mp3_data.c: $(PB_MP3) $(PBTOP)/tools/embed_file.py
+	$(ECHO) "GEN $@"
+	$(Q)$(PYTHON) $(PBTOP)/tools/embed_file.py pb_mp3_data $< $@
 
 $(BUILD)/firmware.elf $(BUILD)/pybricks-virtualhub: $(LD_FILES) $(OBJ)
 	$(ECHO) "LINK $@"
