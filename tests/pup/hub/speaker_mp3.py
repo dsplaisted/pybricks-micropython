@@ -1,0 +1,94 @@
+"""
+Hardware Module: Prime Hub or Inventor Hub, with firmware built with PB_MP3.
+
+Description: Measures the timing of experimental MP3 playback.
+
+Plays the MP3 embedded in the firmware while this program waits, while it
+runs Python code, and while it makes long calls that don't let background
+tasks run. Then compares how fast Python code runs with and without audio.
+"""
+
+from pybricks.hubs import PrimeHub
+from pybricks.tools import StopWatch, wait
+
+hub = PrimeHub()
+watch = StopWatch()
+
+
+def report(phase):
+    s = hub.speaker.mp3_stats(reset=True)
+    print(phase)
+    print(
+        "  decode per frame: avg {:.2f} ms, max {:.2f} ms".format(
+            s["decode_us_avg"] / 1000, s["decode_us_max"] / 1000
+        )
+    )
+    print("  CPU used by decoding: {:.1f}%".format(s["cpu_pct"]))
+    print(
+        "  slowest refill: {:.1f} ms of {:.1f} ms allowed".format(
+            s["fill_latency_us_max"] / 1000, s["half_period_us"] / 1000
+        )
+    )
+    print("  longest background step: {:.2f} ms".format(s["step_us_max"] / 1000))
+    print("  underruns:", s["underruns"])
+
+
+def busy_python(ms):
+    watch.reset()
+    x = 1
+    while watch.time() < ms:
+        x = (x * 31 + 7) % 1000003
+
+
+def blocking_call(n):
+    # sum() over a range runs entirely in C, without giving background tasks
+    # a turn, so it shows what happens when the decoder is starved.
+    watch.reset()
+    sum(range(n))
+    return watch.time()
+
+
+def benchmark(ms):
+    # Counts how many loop iterations run in a fixed time.
+    watch.reset()
+    count = 0
+    while watch.time() < ms:
+        count += 1
+    return count
+
+
+print("Benchmark without audio...")
+base = benchmark(5000)
+
+hub.speaker.play_mp3()
+s = hub.speaker.mp3_stats(reset=True)
+print(
+    "Playing {} Hz, {} kbit/s, {} channel(s). Decoder memory: {} bytes.".format(
+        s["sample_rate"], s["bitrate_kbps"], s["channels"], s["memory_bytes"]
+    )
+)
+
+wait(10000)
+report("Waiting for 10 s:")
+
+busy_python(10000)
+report("Busy Python loop for 10 s:")
+
+for n in (30000, 100000, 300000, 1000000):
+    ms = blocking_call(n)
+    report("Blocking call of {} ms:".format(ms))
+
+playing = benchmark(5000)
+report("Benchmark with audio:")
+print(
+    "Benchmark: {} without audio, {} with audio ({:.1f}% slower)".format(
+        base, playing, 100 * (base - playing) / base
+    )
+)
+
+# Let the rest of the song play to check that it stops by itself at the end.
+print("Waiting for the song to end...")
+while hub.speaker.mp3_stats()["playing"]:
+    wait(1000)
+s = hub.speaker.mp3_stats()
+print("Done. Played {} half buffers.".format(s["halves_played"]))

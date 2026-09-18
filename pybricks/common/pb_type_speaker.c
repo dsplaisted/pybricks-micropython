@@ -14,6 +14,7 @@
 
 #include <math.h>
 #include <pbdrv/sound.h>
+#include <pbio/sound_mp3.h>
 
 #include "py/mphal.h"
 #include "py/obj.h"
@@ -328,10 +329,90 @@ static mp_obj_t pb_type_Speaker_play_notes(size_t n_args, const mp_obj_t *pos_ar
 }
 static MP_DEFINE_CONST_FUN_OBJ_KW(pb_type_Speaker_play_notes_obj, 1, pb_type_Speaker_play_notes);
 
+#if PBIO_CONFIG_SOUND_MP3
+
+// Experimental: plays an MP3 file embedded in the firmware at build time.
+
+// Generated from the file given by PB_MP3 when building.
+extern const uint8_t pb_mp3_data[];
+extern const uint32_t pb_mp3_data_size;
+
+// Decoder memory, kept here so the garbage collector won't free it while
+// playing. Playback is always stopped when the program ends.
+MP_REGISTER_ROOT_POINTER(void *pb_mp3_context);
+
+static mp_obj_t pb_type_Speaker_play_mp3(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
+    PB_PARSE_ARGS_METHOD(n_args, pos_args, kw_args,
+        pb_type_Speaker_obj_t, self,
+        PB_ARG_DEFAULT_FALSE(loop));
+
+    // Stop first, so the old memory is no longer used when replaced.
+    pbio_sound_mp3_stop();
+    MP_STATE_VM(pb_mp3_context) = m_malloc(pbio_sound_mp3_get_context_size());
+
+    pb_assert(pbio_sound_mp3_start(MP_STATE_VM(pb_mp3_context), pb_mp3_data, pb_mp3_data_size,
+        self->sample_attenuator, mp_obj_is_true(loop_in)));
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_KW(pb_type_Speaker_play_mp3_obj, 1, pb_type_Speaker_play_mp3);
+
+static mp_obj_t pb_type_Speaker_stop_mp3(mp_obj_t self_in) {
+    pbio_sound_mp3_stop();
+    MP_STATE_VM(pb_mp3_context) = NULL;
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(pb_type_Speaker_stop_mp3_obj, pb_type_Speaker_stop_mp3);
+
+static void pb_type_Speaker_stats_store(mp_obj_t dict, qstr key, uint32_t value) {
+    mp_obj_dict_store(dict, MP_OBJ_NEW_QSTR(key), mp_obj_new_int_from_uint(value));
+}
+
+static mp_obj_t pb_type_Speaker_mp3_stats(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
+    PB_PARSE_ARGS_METHOD(n_args, pos_args, kw_args,
+        pb_type_Speaker_obj_t, self,
+        PB_ARG_DEFAULT_FALSE(reset));
+    (void)self;
+
+    pbio_sound_mp3_stats_t stats;
+    pbio_sound_mp3_get_stats(&stats, mp_obj_is_true(reset_in));
+
+    mp_obj_t dict = mp_obj_new_dict(16);
+    mp_obj_dict_store(dict, MP_OBJ_NEW_QSTR(MP_QSTR_playing), mp_obj_new_bool(stats.playing));
+    pb_type_Speaker_stats_store(dict, MP_QSTR_sample_rate, stats.sample_rate);
+    pb_type_Speaker_stats_store(dict, MP_QSTR_channels, stats.channels);
+    pb_type_Speaker_stats_store(dict, MP_QSTR_bitrate_kbps, stats.bitrate_kbps);
+    pb_type_Speaker_stats_store(dict, MP_QSTR_frames, stats.frames);
+    pb_type_Speaker_stats_store(dict, MP_QSTR_decode_us_min, stats.decode_us_min);
+    pb_type_Speaker_stats_store(dict, MP_QSTR_decode_us_max, stats.decode_us_max);
+    pb_type_Speaker_stats_store(dict, MP_QSTR_decode_us_avg, stats.frames ? stats.decode_us_total / stats.frames : 0);
+    pb_type_Speaker_stats_store(dict, MP_QSTR_elapsed_ms, stats.elapsed_us / 1000);
+    pb_type_Speaker_stats_store(dict, MP_QSTR_half_period_us, stats.half_period_us);
+    pb_type_Speaker_stats_store(dict, MP_QSTR_fill_latency_us_max, stats.fill_latency_us_max);
+    pb_type_Speaker_stats_store(dict, MP_QSTR_underruns, stats.underruns);
+    pb_type_Speaker_stats_store(dict, MP_QSTR_step_us_max, stats.step_us_max);
+    pb_type_Speaker_stats_store(dict, MP_QSTR_halves_played, stats.halves_played);
+    pb_type_Speaker_stats_store(dict, MP_QSTR_memory_bytes, stats.context_size);
+
+    // Share of processing time spent decoding.
+    mp_float_t cpu_pct = stats.elapsed_us ?
+        (mp_float_t)stats.decode_us_total * 100 / (mp_float_t)stats.elapsed_us : 0;
+    mp_obj_dict_store(dict, MP_OBJ_NEW_QSTR(MP_QSTR_cpu_pct), mp_obj_new_float(cpu_pct));
+
+    return dict;
+}
+static MP_DEFINE_CONST_FUN_OBJ_KW(pb_type_Speaker_mp3_stats_obj, 1, pb_type_Speaker_mp3_stats);
+
+#endif // PBIO_CONFIG_SOUND_MP3
+
 static const mp_rom_map_elem_t pb_type_Speaker_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_volume), MP_ROM_PTR(&pb_type_Speaker_volume_obj) },
     { MP_ROM_QSTR(MP_QSTR_beep), MP_ROM_PTR(&pb_type_Speaker_beep_obj) },
     { MP_ROM_QSTR(MP_QSTR_play_notes), MP_ROM_PTR(&pb_type_Speaker_play_notes_obj) },
+    #if PBIO_CONFIG_SOUND_MP3
+    { MP_ROM_QSTR(MP_QSTR_play_mp3), MP_ROM_PTR(&pb_type_Speaker_play_mp3_obj) },
+    { MP_ROM_QSTR(MP_QSTR_stop_mp3), MP_ROM_PTR(&pb_type_Speaker_stop_mp3_obj) },
+    { MP_ROM_QSTR(MP_QSTR_mp3_stats), MP_ROM_PTR(&pb_type_Speaker_mp3_stats_obj) },
+    #endif
 };
 static MP_DEFINE_CONST_DICT(pb_type_Speaker_locals_dict, pb_type_Speaker_locals_dict_table);
 
