@@ -111,6 +111,7 @@
 #define PBDRV_CONFIG_SOUND_SAMPLED                  (1)
 #define PBDRV_CONFIG_SOUND_BEEP_SAMPLED             (1)
 #define PBDRV_CONFIG_SOUND_STM32_HAL_DAC            (1)
+#define PBDRV_CONFIG_SOUND_STREAM                   (1)
 
 #define PBDRV_CONFIG_UART                           (1)
 #define PBDRV_CONFIG_UART_DEBUG_FIRST_PORT          (0)

@@ -7,7 +7,12 @@
 
 #if PBDRV_CONFIG_SOUND_STM32_HAL_DAC
 
+#include <stdbool.h>
 #include <stdint.h>
+
+#include <pbdrv/clock.h>
+#include <pbdrv/sound.h>
+#include <pbio/os.h>
 
 #include "sound_stm32_hal_dac.h"
 
@@ -71,7 +76,41 @@ void pbdrv_sound_init(void) {
     HAL_NVIC_EnableIRQ(pdata->dma_irq);
 }
 
-void pbdrv_sound_start(const uint16_t *data, uint32_t length, uint32_t sample_rate) {
+#if PBDRV_CONFIG_SOUND_STREAM
+// Streaming state. Only counts completions while streaming, so beeps (which
+// also raise these DMA interrupts) don't cause needless polling.
+static volatile bool pbdrv_sound_stream_active;
+static volatile uint32_t pbdrv_sound_stream_halves_done;
+static volatile uint32_t pbdrv_sound_stream_last_time_us;
+
+static void pbdrv_sound_stream_half_done(void) {
+    if (!pbdrv_sound_stream_active) {
+        return;
+    }
+    pbdrv_sound_stream_last_time_us = pbdrv_clock_get_us();
+    pbdrv_sound_stream_halves_done++;
+    pbio_os_request_poll();
+}
+
+void HAL_DAC_ConvHalfCpltCallbackCh1(DAC_HandleTypeDef *hdac) {
+    pbdrv_sound_stream_half_done();
+}
+
+void HAL_DAC_ConvCpltCallbackCh1(DAC_HandleTypeDef *hdac) {
+    pbdrv_sound_stream_half_done();
+}
+
+uint32_t pbdrv_sound_stream_get_halves_done(uint32_t *time_us) {
+    uint32_t irq_state = __get_PRIMASK();
+    __disable_irq();
+    uint32_t halves_done = pbdrv_sound_stream_halves_done;
+    *time_us = pbdrv_sound_stream_last_time_us;
+    __set_PRIMASK(irq_state);
+    return halves_done;
+}
+#endif // PBDRV_CONFIG_SOUND_STREAM
+
+static void pbdrv_sound_start_dma(const uint16_t *data, uint32_t length, uint32_t sample_rate) {
     const pbdrv_sound_stm32_hal_dac_platform_data_t *pdata = &pbdrv_sound_stm32_hal_dac_platform_data;
 
     HAL_GPIO_WritePin(pdata->enable_gpio_bank, pdata->enable_gpio_pin, GPIO_PIN_SET);
@@ -80,9 +119,31 @@ void pbdrv_sound_start(const uint16_t *data, uint32_t length, uint32_t sample_ra
     HAL_DAC_Start_DMA(&pbdrv_sound_hdac, pdata->dac_ch, (uint32_t *)data, length, DAC_ALIGN_12B_L);
 }
 
+void pbdrv_sound_start(const uint16_t *data, uint32_t length, uint32_t sample_rate) {
+    #if PBDRV_CONFIG_SOUND_STREAM
+    pbdrv_sound_stream_active = false;
+    #endif
+    pbdrv_sound_start_dma(data, length, sample_rate);
+}
+
+#if PBDRV_CONFIG_SOUND_STREAM
+void pbdrv_sound_stream_start(uint16_t *data, uint32_t length, uint32_t sample_rate) {
+    // Stop anything already playing so the counter starts in sync with the
+    // start of the buffer.
+    pbdrv_sound_stop();
+    pbdrv_sound_stream_halves_done = 0;
+    pbdrv_sound_stream_last_time_us = pbdrv_clock_get_us();
+    pbdrv_sound_stream_active = true;
+    pbdrv_sound_start_dma(data, length, sample_rate);
+}
+#endif // PBDRV_CONFIG_SOUND_STREAM
+
 void pbdrv_sound_stop(void) {
     const pbdrv_sound_stm32_hal_dac_platform_data_t *pdata = &pbdrv_sound_stm32_hal_dac_platform_data;
 
+    #if PBDRV_CONFIG_SOUND_STREAM
+    pbdrv_sound_stream_active = false;
+    #endif
     HAL_GPIO_WritePin(pdata->enable_gpio_bank, pdata->enable_gpio_pin, GPIO_PIN_RESET);
     HAL_DAC_Stop_DMA(&pbdrv_sound_hdac, pdata->dac_ch);
 }

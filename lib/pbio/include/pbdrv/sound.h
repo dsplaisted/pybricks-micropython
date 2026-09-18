@@ -34,7 +34,31 @@ void pbdrv_beep_start(uint32_t frequency, uint16_t sample_attenuator);
  * @param [in]  sample_rate The sample rate of @p data in Hz.
  */
 void pbdrv_sound_start(const uint16_t *data, uint32_t length, uint32_t sample_rate);
-#endif
+
+#if PBDRV_CONFIG_SOUND_STREAM
+/**
+ * Starts streaming samples from a double buffer until pbdrv_sound_stop() is
+ * called.
+ *
+ * The hardware plays @p data repeatedly. Each time it finishes one half,
+ * the half counter increments and a poll is requested, so the caller can
+ * refill that half while the other half plays.
+ *
+ * @param [in]  data        Buffer of @p length samples, both halves filled.
+ * @param [in]  length      The number of samples in @p data. Must be even.
+ * @param [in]  sample_rate The sample rate of @p data in Hz.
+ */
+void pbdrv_sound_stream_start(uint16_t *data, uint32_t length, uint32_t sample_rate);
+
+/**
+ * Gets the number of buffer halves completed since streaming started.
+ *
+ * @param [out] time_us     Time of the most recent completion in microseconds.
+ * @return                  Number of halves completed.
+ */
+uint32_t pbdrv_sound_stream_get_halves_done(uint32_t *time_us);
+#endif // PBDRV_CONFIG_SOUND_STREAM
+#endif // PBDRV_CONFIG_SOUND_SAMPLED
 
 /**
  * Stops any currently playing sound.
