@@ -4,6 +4,13 @@
 
 ## [Unreleased]
 
+### Changed
+- Increased the number of program slots on SPIKE Prime and MINDSTORMS
+  Robot Inventor hubs from 5 to 15. Slots 6 to 15 are shown on the light
+  matrix as 2 or more adjacent pixels on the bottom row. The maximum size of
+  each program is unchanged, but downloads fail if all programs combined
+  exceed the available storage.
+
 [Unreleased]: https://github.com/pybricks/pybricks-micropython/compare/v4.0.1...HEAD
 
 ## [4.0.1] - 2026-06-23

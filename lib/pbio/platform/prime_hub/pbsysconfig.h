@@ -10,7 +10,7 @@
 #define PBSYS_CONFIG_BATTERY_CHARGER                (1)
 #define PBSYS_CONFIG_HMI                            (1)
 #define PBSYS_CONFIG_HMI_STOP_BUTTON                (1 << 5) // center
-#define PBSYS_CONFIG_HMI_NUM_SLOTS                  (5)
+#define PBSYS_CONFIG_HMI_NUM_SLOTS                  (15)
 #define PBSYS_CONFIG_HMI_PUP                        (1)
 #define PBSYS_CONFIG_HMI_PUP_LIGHT_MATRIX_INDEX     (0)
 #define PBSYS_CONFIG_HMI_PUP_BLUETOOTH_BUTTON       (1 << 9) // right up
@@ -21,7 +21,8 @@
 #define PBSYS_CONFIG_HOST_STDIN_BUF_SIZE            (64)
 #define PBSYS_CONFIG_MAIN                           (1)
 #define PBSYS_CONFIG_STORAGE                        (1)
-#define PBSYS_CONFIG_STORAGE_NUM_SLOTS              (5)
+#define PBSYS_CONFIG_STORAGE_NUM_SLOTS              (PBSYS_CONFIG_HMI_NUM_SLOTS)
+#define PBSYS_CONFIG_STORAGE_PROGRAM_SIZE_DIVISOR   (5)
 #define PBSYS_CONFIG_STORAGE_USER_DATA_SIZE         (512)
 #define PBSYS_CONFIG_STATUS_LIGHT                   (1)
 #define PBSYS_CONFIG_STATUS_LIGHT_BATTERY           (1)
