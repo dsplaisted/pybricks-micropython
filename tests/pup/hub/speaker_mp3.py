@@ -12,7 +12,7 @@ from pybricks.hubs import PrimeHub
 from pybricks.tools import StopWatch, wait
 
 # Volume to play at. The hub default is 100, which is loud for desk testing.
-VOLUME = 40
+VOLUME = 25
 
 # Whether to let the whole song finish, which takes about 2.5 minutes, to
 # check that playback stops by itself at the end. The measurements above it
