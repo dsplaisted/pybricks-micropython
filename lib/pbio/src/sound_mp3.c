@@ -213,7 +213,8 @@ static bool pbio_sound_mp3_step(void) {
     // The half we are filling has already started playing, so old data is
     // playing instead. Continue the audio in the half after the one that is
     // playing now.
-    if (player.streaming && done >= player.halves_filled) {
+    bool was_late = player.streaming && done >= player.halves_filled;
+    if (was_late) {
         player.stats.underruns += done - player.halves_filled + 1;
         player.halves_filled = done + 1;
         player.fill_pos = 0;
@@ -236,8 +237,10 @@ static bool pbio_sound_mp3_step(void) {
     }
 
     // This half is complete. It became free when the previous half started
-    // playing, which is the most recent completion.
-    if (player.streaming) {
+    // playing, which is the most recent completion. After being late, the
+    // most recent completion is not the one that freed this half, so the
+    // measurement would be meaningless.
+    if (player.streaming && !was_late) {
         uint32_t latency_us = pbdrv_clock_get_us() - irq_us;
         if (latency_us > player.stats.fill_latency_us_max) {
             player.stats.fill_latency_us_max = latency_us;

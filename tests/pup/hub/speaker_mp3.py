@@ -11,12 +11,26 @@ tasks run. Then compares how fast Python code runs with and without audio.
 from pybricks.hubs import PrimeHub
 from pybricks.tools import StopWatch, wait
 
+# Volume to play at. The hub default is 100, which is loud for desk testing.
+VOLUME = 40
+
+# Whether to let the whole song finish, which takes about 2.5 minutes, to
+# check that playback stops by itself at the end. The measurements above it
+# take about 30 seconds either way.
+WAIT_FOR_SONG_END = False
+
 hub = PrimeHub()
 watch = StopWatch()
 
 
+def start_phase():
+    # Starts a new measurement, so that the time spent printing the previous
+    # results is not counted in the next phase.
+    hub.speaker.mp3_stats(reset=True)
+
+
 def report(phase):
-    s = hub.speaker.mp3_stats(reset=True)
+    s = hub.speaker.mp3_stats()
     print(phase)
     print(
         "  decode per frame: avg {:.2f} ms, max {:.2f} ms".format(
@@ -61,26 +75,31 @@ def benchmark(ms):
 print("Benchmark without audio...")
 base = benchmark(5000)
 
+hub.speaker.volume(VOLUME)
 hub.speaker.play_mp3()
-s = hub.speaker.mp3_stats(reset=True)
+s = hub.speaker.mp3_stats()
 print(
-    "Playing {} Hz, {} kbit/s, {} channel(s). Decoder memory: {} bytes.".format(
-        s["sample_rate"], s["bitrate_kbps"], s["channels"], s["memory_bytes"]
+    "Playing {} Hz, {} kbit/s, {} channel(s) at volume {}. Decoder memory: {} bytes.".format(
+        s["sample_rate"], s["bitrate_kbps"], s["channels"], VOLUME, s["memory_bytes"]
     )
 )
 
+start_phase()
 wait(10000)
 report("Waiting for 10 s:")
 
+start_phase()
 busy_python(10000)
 report("Busy Python loop for 10 s:")
 
 # These should straddle the time that one buffer half lasts, so the last
 # ones are expected to cause underruns.
 for n in (30000, 60000, 120000, 300000):
+    start_phase()
     ms = blocking_call(n)
     report("Blocking call of {} ms:".format(ms))
 
+start_phase()
 playing = benchmark(5000)
 report("Benchmark with audio:")
 print(
@@ -89,9 +108,12 @@ print(
     )
 )
 
-# Let the rest of the song play to check that it stops by itself at the end.
-print("Waiting for the song to end...")
-while hub.speaker.mp3_stats()["playing"]:
-    wait(1000)
-s = hub.speaker.mp3_stats()
-print("Done. Played {} half buffers.".format(s["halves_played"]))
+if WAIT_FOR_SONG_END:
+    # Check that playback stops by itself at the end of the song.
+    print("Waiting for the song to end...")
+    while hub.speaker.mp3_stats()["playing"]:
+        wait(1000)
+    print("Done. Played {} half buffers.".format(hub.speaker.mp3_stats()["halves_played"]))
+else:
+    hub.speaker.stop_mp3()
+    print("Stopped.")
