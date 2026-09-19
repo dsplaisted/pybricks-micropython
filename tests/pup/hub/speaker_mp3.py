@@ -41,10 +41,11 @@ def busy_python(ms):
 
 
 def blocking_call(n):
-    # sum() over a range runs entirely in C, without giving background tasks
-    # a turn, so it shows what happens when the decoder is starved.
+    # max() over a range runs entirely in C, without giving background tasks
+    # a turn, so it shows what happens when the decoder is starved. It does
+    # not add the values up, which would overflow.
     watch.reset()
-    sum(range(n))
+    max(range(n))
     return watch.time()
 
 
@@ -74,7 +75,9 @@ report("Waiting for 10 s:")
 busy_python(10000)
 report("Busy Python loop for 10 s:")
 
-for n in (30000, 100000, 300000, 1000000):
+# These should straddle the time that one buffer half lasts, so the last
+# ones are expected to cause underruns.
+for n in (30000, 60000, 120000, 300000):
     ms = blocking_call(n)
     report("Blocking call of {} ms:".format(ms))
 
