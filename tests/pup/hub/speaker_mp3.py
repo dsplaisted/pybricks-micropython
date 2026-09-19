@@ -97,7 +97,11 @@ report("Busy Python loop for 10 s:")
 for n in (30000, 60000, 120000, 300000):
     start_phase()
     ms = blocking_call(n)
-    report("Blocking call of {} ms:".format(ms))
+    # Nothing runs in the background during the call above, so the decoder
+    # only notices and reports missed deadlines once it runs again. Wait for
+    # it to catch up before reading the results.
+    wait(300)
+    report("Blocking call of {} ms, plus 300 ms to recover:".format(ms))
 
 start_phase()
 playing = benchmark(5000)
