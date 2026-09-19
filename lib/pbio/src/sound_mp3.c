@@ -64,6 +64,8 @@ static struct {
     bool persist;
     /** Volume scale, which may be changed while playing. */
     volatile uint16_t sample_attenuator;
+    /** The same volume as a percentage, for reporting it back. */
+    uint8_t volume_percent;
     /** Number of decoded samples in the pcm buffer. */
     uint32_t pcm_count;
     /** Number of samples from the pcm buffer copied to the double buffer. */
@@ -340,9 +342,31 @@ void pbio_sound_mp3_stop(void) {
  * takes effect after up to two buffer halves.
  *
  * @param [in]  sample_attenuator   Volume scale factor (0 to INT16_MAX).
+ * @param [in]  percent             The same volume in percent.
  */
-void pbio_sound_mp3_set_volume(uint16_t sample_attenuator) {
+void pbio_sound_mp3_set_volume(uint16_t sample_attenuator, uint8_t percent) {
     player.sample_attenuator = sample_attenuator;
+    player.volume_percent = percent;
+}
+
+/**
+ * Gets the volume of the sound that is currently playing.
+ *
+ * Lets a new program pick up where the previous one left off, instead of
+ * changing the volume of music that is already playing.
+ *
+ * @param [out] sample_attenuator   Volume scale factor.
+ * @param [out] percent             The same volume in percent.
+ * @return                          @c false if nothing is playing, in which
+ *                                  case the values are not set.
+ */
+bool pbio_sound_mp3_get_volume(uint16_t *sample_attenuator, uint8_t *percent) {
+    if (!player.streaming) {
+        return false;
+    }
+    *sample_attenuator = player.sample_attenuator;
+    *percent = player.volume_percent;
+    return true;
 }
 
 /**

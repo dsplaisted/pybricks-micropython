@@ -60,7 +60,7 @@ static mp_obj_t pb_type_Speaker_volume(size_t n_args, const mp_obj_t *pos_args, 
     self->sample_attenuator = (powf(10, self->volume / 100.0F) - 1) / 9 * INT16_MAX;
 
     // Applies to sound that is already playing, too.
-    pbio_sound_mp3_set_volume(self->sample_attenuator);
+    pbio_sound_mp3_set_volume(self->sample_attenuator, self->volume);
 
     return mp_const_none;
 }
@@ -74,6 +74,15 @@ static mp_obj_t pb_type_Speaker_make_new(const mp_obj_type_t *type, size_t n_arg
     // If done only once per singleton, however, altered volume settings would be persisted between program runs.
     self->volume = PBDRV_CONFIG_SOUND_DEFAULT_VOLUME;
     self->sample_attenuator = INT16_MAX;
+
+    // Sound that is still playing from an earlier program keeps its volume,
+    // so that reading or changing the volume here continues from that.
+    uint16_t playing_attenuator;
+    uint8_t playing_volume;
+    if (pbio_sound_mp3_get_volume(&playing_attenuator, &playing_volume)) {
+        self->volume = playing_volume;
+        self->sample_attenuator = playing_attenuator;
+    }
 
     self->iter = NULL;
 
@@ -367,6 +376,10 @@ static mp_obj_t pb_type_Speaker_play_mp3(size_t n_args, const mp_obj_t *pos_args
 
     pb_assert(pbio_sound_mp3_start(context, pb_mp3_data, pb_mp3_data_size,
         self->sample_attenuator, mp_obj_is_true(loop_in), persist));
+
+    // Also record it as a percentage, so a later program can read it back.
+    pbio_sound_mp3_set_volume(self->sample_attenuator, self->volume);
+
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_KW(pb_type_Speaker_play_mp3_obj, 1, pb_type_Speaker_play_mp3);
