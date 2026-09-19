@@ -18,6 +18,7 @@
 #include <pbdrv/sound.h>
 #include <pbio/os.h>
 #include <pbio/sound_mp3.h>
+#include <pbio/sound_volume.h>
 
 // The decoder normally puts about 16 KB of scratch memory on the stack for
 // each frame. This is more than the whole stack on some hubs, so our copy of
@@ -62,10 +63,6 @@ static struct {
     bool loop;
     /** Whether playback continues when a user program ends. */
     bool persist;
-    /** Volume scale, which may be changed while playing. */
-    volatile uint16_t sample_attenuator;
-    /** The same volume as a percentage, for reporting it back. */
-    uint8_t volume_percent;
     /** Number of decoded samples in the pcm buffer. */
     uint32_t pcm_count;
     /** Number of samples from the pcm buffer copied to the double buffer. */
@@ -166,7 +163,7 @@ static bool pbio_sound_mp3_decode_frame(void) {
  */
 static void pbio_sound_mp3_copy_samples(void) {
     uint16_t *dst = player.ctx->buffer + (player.halves_filled % 2) * HALF_SAMPLES;
-    int32_t attenuator = player.sample_attenuator;
+    int32_t attenuator = pbio_sound_volume_get_sample_attenuator();
     while (player.fill_pos < HALF_SAMPLES && player.pcm_pos < player.pcm_count) {
         int32_t sample = player.ctx->pcm[player.pcm_pos++];
         dst[player.fill_pos++] = INT16_MAX + ((sample * attenuator) >> 15);
@@ -286,12 +283,11 @@ static pbio_error_t pbio_sound_mp3_process_thread(pbio_os_state_t *state, void *
  *                                  ends or ::pbio_sound_mp3_stop is called.
  * @param [in]  data                The MP3 data.
  * @param [in]  size                Size of @p data.
- * @param [in]  sample_attenuator   Volume scale factor (0 to INT16_MAX).
  * @param [in]  loop                Whether to repeat from the start at the end.
  * @return                          ::PBIO_ERROR_INVALID_ARG if there is no
  *                                  audio in @p data, otherwise ::PBIO_SUCCESS.
  */
-pbio_error_t pbio_sound_mp3_start(void *context, const uint8_t *data, uint32_t size, uint16_t sample_attenuator, bool loop, bool persist) {
+pbio_error_t pbio_sound_mp3_start(void *context, const uint8_t *data, uint32_t size, bool loop, bool persist) {
 
     pbio_sound_mp3_stop();
 
@@ -301,7 +297,6 @@ pbio_error_t pbio_sound_mp3_start(void *context, const uint8_t *data, uint32_t s
     player.size = size;
     player.loop = loop;
     player.persist = persist;
-    player.sample_attenuator = sample_attenuator;
     player.stats.decode_us_min = UINT32_MAX;
     player.stats.context_size = sizeof(pbio_sound_mp3_context_t);
 
@@ -333,40 +328,6 @@ pbio_error_t pbio_sound_mp3_start(void *context, const uint8_t *data, uint32_t s
  */
 void pbio_sound_mp3_stop(void) {
     pbio_sound_mp3_stop_streaming();
-}
-
-/**
- * Sets the volume, also while playing.
- *
- * Samples that are already buffered keep the previous volume, so the change
- * takes effect after up to two buffer halves.
- *
- * @param [in]  sample_attenuator   Volume scale factor (0 to INT16_MAX).
- * @param [in]  percent             The same volume in percent.
- */
-void pbio_sound_mp3_set_volume(uint16_t sample_attenuator, uint8_t percent) {
-    player.sample_attenuator = sample_attenuator;
-    player.volume_percent = percent;
-}
-
-/**
- * Gets the volume of the sound that is currently playing.
- *
- * Lets a new program pick up where the previous one left off, instead of
- * changing the volume of music that is already playing.
- *
- * @param [out] sample_attenuator   Volume scale factor.
- * @param [out] percent             The same volume in percent.
- * @return                          @c false if nothing is playing, in which
- *                                  case the values are not set.
- */
-bool pbio_sound_mp3_get_volume(uint16_t *sample_attenuator, uint8_t *percent) {
-    if (!player.streaming) {
-        return false;
-    }
-    *sample_attenuator = player.sample_attenuator;
-    *percent = player.volume_percent;
-    return true;
 }
 
 /**

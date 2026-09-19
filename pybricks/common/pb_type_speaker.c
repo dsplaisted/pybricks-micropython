@@ -15,6 +15,7 @@
 #include <math.h>
 #include <pbdrv/sound.h>
 #include <pbio/sound_mp3.h>
+#include <pbio/sound_volume.h>
 #include <pbsys/storage.h>
 
 #include "py/mphal.h"
@@ -59,8 +60,9 @@ static mp_obj_t pb_type_Speaker_volume(size_t n_args, const mp_obj_t *pos_args, 
     // exponential amplification (human ear perceives sample amplitude in a logarithmic way)
     self->sample_attenuator = (powf(10, self->volume / 100.0F) - 1) / 9 * INT16_MAX;
 
-    // Applies to sound that is already playing, too.
-    pbio_sound_mp3_set_volume(self->sample_attenuator, self->volume);
+    // Shared with other sounds and kept when this program ends. Sound that
+    // is already playing picks up the new volume right away.
+    pbio_sound_volume_set(self->volume, self->sample_attenuator);
 
     return mp_const_none;
 }
@@ -70,19 +72,10 @@ static mp_obj_t pb_type_Speaker_make_new(const mp_obj_type_t *type, size_t n_arg
 
     pb_type_Speaker_obj_t *self = mp_obj_malloc(pb_type_Speaker_obj_t, type);
 
-    // REVISIT: If a user creates two Speaker instances, this will reset the volume settings for both.
-    // If done only once per singleton, however, altered volume settings would be persisted between program runs.
-    self->volume = PBDRV_CONFIG_SOUND_DEFAULT_VOLUME;
-    self->sample_attenuator = INT16_MAX;
-
-    // Sound that is still playing from an earlier program keeps its volume,
-    // so that reading or changing the volume here continues from that.
-    uint16_t playing_attenuator;
-    uint8_t playing_volume;
-    if (pbio_sound_mp3_get_volume(&playing_attenuator, &playing_volume)) {
-        self->volume = playing_volume;
-        self->sample_attenuator = playing_attenuator;
-    }
+    // The volume is kept outside of the application, so it continues where
+    // the previous program left off instead of resetting to the default.
+    self->volume = pbio_sound_volume_get_percent();
+    self->sample_attenuator = pbio_sound_volume_get_sample_attenuator();
 
     self->iter = NULL;
 
@@ -359,6 +352,8 @@ static mp_obj_t pb_type_Speaker_play_mp3(size_t n_args, const mp_obj_t *pos_args
         pb_type_Speaker_obj_t, self,
         PB_ARG_DEFAULT_FALSE(loop),
         PB_ARG_DEFAULT_FALSE(persist));
+    // The volume is shared, so nothing else is needed from the instance.
+    (void)self;
 
     // Stop first, so the old memory is no longer used when replaced.
     pbio_sound_mp3_stop();
@@ -375,11 +370,7 @@ static mp_obj_t pb_type_Speaker_play_mp3(size_t n_args, const mp_obj_t *pos_args
     void *context = persist ? pbsys_storage_get_sound_memory() : MP_STATE_VM(pb_mp3_context);
 
     pb_assert(pbio_sound_mp3_start(context, pb_mp3_data, pb_mp3_data_size,
-        self->sample_attenuator, mp_obj_is_true(loop_in), persist));
-
-    // Also record it as a percentage, so a later program can read it back.
-    pbio_sound_mp3_set_volume(self->sample_attenuator, self->volume);
-
+        mp_obj_is_true(loop_in), persist));
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_KW(pb_type_Speaker_play_mp3_obj, 1, pb_type_Speaker_play_mp3);
