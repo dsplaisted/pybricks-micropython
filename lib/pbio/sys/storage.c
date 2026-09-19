@@ -16,6 +16,7 @@
 #include <pbio/busy_count.h>
 #include <pbio/main.h>
 #include <pbio/protocol.h>
+#include <pbio/sound_mp3.h>
 #include <pbio/version.h>
 
 #include <pbsys/hmi.h>
@@ -94,6 +95,30 @@ static uint32_t pbsys_storage_get_used_program_data_size(void) {
     }
     return size;
 }
+
+#if PBIO_CONFIG_SOUND_MP3
+/**
+ * Gets the size of the memory reserved for the sound player.
+ *
+ * @returns             Reserved size in bytes.
+ */
+static uint32_t pbsys_storage_get_sound_memory_size(void) {
+    // Round up to keep the application heap aligned.
+    return (pbio_sound_mp3_get_context_size() + 7) / 8 * 8;
+}
+
+/**
+ * Gets memory at the end of user RAM that is reserved for the sound player.
+ *
+ * Unlike the application heap, this is not reused when a program ends, so
+ * sound can keep playing across program runs.
+ *
+ * @returns             The reserved memory.
+ */
+void *pbsys_storage_get_sound_memory(void) {
+    return ((void *)map) + PBDRV_CONFIG_BLOCK_DEVICE_RAM_SIZE - pbsys_storage_get_sound_memory_size();
+}
+#endif // PBIO_CONFIG_SOUND_MP3
 
 /**
  * Gets the total size available for all programs combined.
@@ -397,6 +422,11 @@ void pbsys_storage_get_program_data(pbsys_main_program_t *program) {
     // User ram starts after the last slot, even if a non-slot program is run.
     program->user_ram_start = map->program_data + pbsys_storage_get_used_program_data_size();
     program->user_ram_end = ((void *)map) + PBDRV_CONFIG_BLOCK_DEVICE_RAM_SIZE;
+
+    #if PBIO_CONFIG_SOUND_MP3
+    // The sound player memory sits at the end and is not part of the heap.
+    program->user_ram_end -= pbsys_storage_get_sound_memory_size();
+    #endif
 }
 
 /**

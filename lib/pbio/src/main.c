@@ -59,9 +59,11 @@ void pbio_deinit(void) {
  */
 void pbio_main_soft_stop(void) {
     pbio_port_stop_user_actions(false);
-    // Stops using memory from the application before it is freed.
-    pbio_sound_mp3_stop();
-    pbdrv_sound_stop();
+    // Stops using memory from the application before it is freed, unless the
+    // sound was started to keep playing across programs.
+    if (!pbio_sound_mp3_stop_for_program_end()) {
+        pbdrv_sound_stop();
+    }
 }
 
 /**

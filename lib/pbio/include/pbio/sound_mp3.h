@@ -60,15 +60,26 @@ typedef struct {
 
 size_t pbio_sound_mp3_get_context_size(void);
 
-pbio_error_t pbio_sound_mp3_start(void *context, const uint8_t *data, uint32_t size, uint16_t sample_attenuator, bool loop);
+pbio_error_t pbio_sound_mp3_start(void *context, const uint8_t *data, uint32_t size, uint16_t sample_attenuator, bool loop, bool persist);
+
+void pbio_sound_mp3_set_volume(uint16_t sample_attenuator);
 
 void pbio_sound_mp3_stop(void);
+
+bool pbio_sound_mp3_stop_for_program_end(void);
 
 void pbio_sound_mp3_get_stats(pbio_sound_mp3_stats_t *stats, bool reset);
 
 #else // PBIO_CONFIG_SOUND_MP3
 
+static inline void pbio_sound_mp3_set_volume(uint16_t sample_attenuator) {
+}
+
 static inline void pbio_sound_mp3_stop(void) {
+}
+
+static inline bool pbio_sound_mp3_stop_for_program_end(void) {
+    return false;
 }
 
 #endif // PBIO_CONFIG_SOUND_MP3

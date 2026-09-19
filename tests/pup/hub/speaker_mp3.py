@@ -106,6 +106,12 @@ for n in (30000, 60000, 120000, 300000):
 start_phase()
 playing = benchmark(5000)
 report("Benchmark with audio:")
+
+# Volume changes apply to sound that is already playing.
+print("Changing volume while playing...")
+for volume in (10, 60, VOLUME):
+    hub.speaker.volume(volume)
+    wait(1500)
 print(
     "Benchmark: {} without audio, {} with audio ({:.1f}% slower)".format(
         base, playing, 100 * (base - playing) / base

@@ -15,6 +15,7 @@
 #include <math.h>
 #include <pbdrv/sound.h>
 #include <pbio/sound_mp3.h>
+#include <pbsys/storage.h>
 
 #include "py/mphal.h"
 #include "py/obj.h"
@@ -57,6 +58,9 @@ static mp_obj_t pb_type_Speaker_volume(size_t n_args, const mp_obj_t *pos_args, 
 
     // exponential amplification (human ear perceives sample amplitude in a logarithmic way)
     self->sample_attenuator = (powf(10, self->volume / 100.0F) - 1) / 9 * INT16_MAX;
+
+    // Applies to sound that is already playing, too.
+    pbio_sound_mp3_set_volume(self->sample_attenuator);
 
     return mp_const_none;
 }
@@ -344,14 +348,25 @@ MP_REGISTER_ROOT_POINTER(void *pb_mp3_context);
 static mp_obj_t pb_type_Speaker_play_mp3(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
     PB_PARSE_ARGS_METHOD(n_args, pos_args, kw_args,
         pb_type_Speaker_obj_t, self,
-        PB_ARG_DEFAULT_FALSE(loop));
+        PB_ARG_DEFAULT_FALSE(loop),
+        PB_ARG_DEFAULT_FALSE(persist));
 
     // Stop first, so the old memory is no longer used when replaced.
     pbio_sound_mp3_stop();
-    MP_STATE_VM(pb_mp3_context) = m_malloc(pbio_sound_mp3_get_context_size());
 
-    pb_assert(pbio_sound_mp3_start(MP_STATE_VM(pb_mp3_context), pb_mp3_data, pb_mp3_data_size,
-        self->sample_attenuator, mp_obj_is_true(loop_in)));
+    bool persist = mp_obj_is_true(persist_in);
+    if (persist) {
+        // Reserved memory that is not reused when this program ends, so that
+        // the sound can keep playing during and after the next programs.
+        MP_STATE_VM(pb_mp3_context) = NULL;
+    } else {
+        MP_STATE_VM(pb_mp3_context) = m_malloc(pbio_sound_mp3_get_context_size());
+    }
+
+    void *context = persist ? pbsys_storage_get_sound_memory() : MP_STATE_VM(pb_mp3_context);
+
+    pb_assert(pbio_sound_mp3_start(context, pb_mp3_data, pb_mp3_data_size,
+        self->sample_attenuator, mp_obj_is_true(loop_in), persist));
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_KW(pb_type_Speaker_play_mp3_obj, 1, pb_type_Speaker_play_mp3);

@@ -60,7 +60,10 @@ static struct {
     /** Position of the next frame in the data. */
     uint32_t pos;
     bool loop;
-    uint16_t sample_attenuator;
+    /** Whether playback continues when a user program ends. */
+    bool persist;
+    /** Volume scale, which may be changed while playing. */
+    volatile uint16_t sample_attenuator;
     /** Number of decoded samples in the pcm buffer. */
     uint32_t pcm_count;
     /** Number of samples from the pcm buffer copied to the double buffer. */
@@ -286,7 +289,7 @@ static pbio_error_t pbio_sound_mp3_process_thread(pbio_os_state_t *state, void *
  * @return                          ::PBIO_ERROR_INVALID_ARG if there is no
  *                                  audio in @p data, otherwise ::PBIO_SUCCESS.
  */
-pbio_error_t pbio_sound_mp3_start(void *context, const uint8_t *data, uint32_t size, uint16_t sample_attenuator, bool loop) {
+pbio_error_t pbio_sound_mp3_start(void *context, const uint8_t *data, uint32_t size, uint16_t sample_attenuator, bool loop, bool persist) {
 
     pbio_sound_mp3_stop();
 
@@ -295,6 +298,7 @@ pbio_error_t pbio_sound_mp3_start(void *context, const uint8_t *data, uint32_t s
     player.data = data;
     player.size = size;
     player.loop = loop;
+    player.persist = persist;
     player.sample_attenuator = sample_attenuator;
     player.stats.decode_us_min = UINT32_MAX;
     player.stats.context_size = sizeof(pbio_sound_mp3_context_t);
@@ -327,6 +331,32 @@ pbio_error_t pbio_sound_mp3_start(void *context, const uint8_t *data, uint32_t s
  */
 void pbio_sound_mp3_stop(void) {
     pbio_sound_mp3_stop_streaming();
+}
+
+/**
+ * Sets the volume, also while playing.
+ *
+ * Samples that are already buffered keep the previous volume, so the change
+ * takes effect after up to two buffer halves.
+ *
+ * @param [in]  sample_attenuator   Volume scale factor (0 to INT16_MAX).
+ */
+void pbio_sound_mp3_set_volume(uint16_t sample_attenuator) {
+    player.sample_attenuator = sample_attenuator;
+}
+
+/**
+ * Stops playing when a user program ends, unless playback was started with
+ * @c persist so that it continues across program runs.
+ *
+ * @return  @c true if playback continues, @c false otherwise.
+ */
+bool pbio_sound_mp3_stop_for_program_end(void) {
+    if (player.streaming && player.persist) {
+        return true;
+    }
+    pbio_sound_mp3_stop_streaming();
+    return false;
 }
 
 /**

@@ -14,12 +14,17 @@
 
 #include <stdint.h>
 
+#include <pbio/config.h>
 #include <pbsys/config.h>
 #include <pbsys/storage_settings.h>
 
 #if PBSYS_CONFIG_STORAGE
 
 uint32_t pbsys_storage_get_maximum_program_size(void);
+
+#if PBIO_CONFIG_SOUND_MP3
+void *pbsys_storage_get_sound_memory(void);
+#endif
 
 void pbsys_storage_reset_storage(void);
 
