@@ -134,7 +134,11 @@
 #define PBDRV_CONFIG_USB_PROD_STR                   LEGO_USB_PROD_STR_TECHNIC_LARGE_HUB " + Pybricks"
 #define PBDRV_CONFIG_USB_STM32F4                    (1)
 #define PBDRV_CONFIG_USB_STM32F4_HUB_VARIANT_ADDR   0x08007d80
+// USB is unfinished in this release and was turned off for it, so it stays
+// off unless a build asks for it with PB_USB=1. See doc/usb-file-transfer.md.
+#ifndef PBDRV_CONFIG_USB_CHARGE_ONLY
 #define PBDRV_CONFIG_USB_CHARGE_ONLY                (1)
+#endif
 
 #define PBDRV_CONFIG_STACK                          (1)
 #define PBDRV_CONFIG_STACK_EMBEDDED                 (1)

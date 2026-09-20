@@ -23,6 +23,7 @@
 #include <pbio/util.h>
 
 #include <pbdrv/bluetooth.h>
+#include <pbdrv/usb.h>
 
 #include <pbsys/host.h>
 
@@ -34,9 +35,25 @@
 
 // What fits right now, which is less on a connection that agreed to less.
 static uint32_t pbsys_flash_transfer_data_size(void) {
+
     uint32_t size = pbdrv_bluetooth_get_max_message_size();
     // One byte for the event, one for the kind of answer.
     size = size > 2 ? size - 2 : 1;
+
+    #if PBDRV_CONFIG_USB && !PBDRV_CONFIG_USB_CHARGE_ONLY
+    // An answer goes to every connection at once, so it has to fit the
+    // smallest of them. A USB packet holds less than a Bluetooth message,
+    // but only counts while something is listening on it.
+    if (pbdrv_usb_connection_is_active()) {
+        // Two bytes of the packet say what it is, and one more is the kind
+        // of answer.
+        uint32_t usb_size = PBDRV_CONFIG_USB_MAX_PACKET_SIZE - 3;
+        if (usb_size < size) {
+            size = usb_size;
+        }
+    }
+    #endif
+
     return size < DATA_SIZE ? size : DATA_SIZE;
 }
 

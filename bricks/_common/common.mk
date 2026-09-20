@@ -614,6 +614,13 @@ PBIO_SRC_C += $(BUILD)/font_terminus_normal_16.c
 PBIO_SRC_C += $(BUILD)/font_mono_8x5_8.c
 endif
 
+# Experimental USB. Set PB_USB=1 to talk to the hub over USB as well as
+# Bluetooth, which sends files about seven times faster. USB was unfinished
+# when this release was made, so leaving it out is the safe choice.
+ifeq ($(PB_USB),1)
+CFLAGS += -DPBDRV_CONFIG_USB_CHARGE_ONLY=0
+endif
+
 # Experimental MP3 playback with Speaker.play_mp3(). Set PB_MP3 to one or more
 # MP3 files (paths without spaces) to embed them in the firmware. Run
 # "make clean" after adding or removing PB_MP3.
