@@ -67,20 +67,36 @@ the data that identifies the file system. That turns "damaged file system"
 into "no file system", which is the case that recovers by itself. Failing
 that, the app's factory reset recreates it.
 
-So the two cannot coexist. The realistic choices are:
+### Measured on a hub
 
-1. **Accept and document it.** Songs live above 1 MB. Switching back to
-   LEGO firmware means losing the songs and, most likely, whatever was on
-   the hub. Acceptable for a hub dedicated to Pybricks.
-2. **Use the far end of the chip**, e.g. the last 8 MB. A file system
-   allocates from the start, so the tail is usually untouched, and a hub
-   with only a few programs may never reach it. This is a gamble, not a
-   guarantee: it breaks as soon as the user stores enough data.
+Read with `hub.system.flash_read()` on a hub that had been used normally:
 
-Option 1 is honest; option 2 is option 1 with extra hope. Whichever is
-chosen, the firmware should not touch the external flash above 1 MB until
-the user asks it to store a song, so that installing this firmware does not
-by itself destroy anything.
+- At 1 MB there is a **littlefs v2** file system, with its usual pair of
+  superblocks in the first two blocks. Its header reports a block size of
+  4 KB and 7936 blocks, which is 31 MB: the whole chip above 1 MB.
+- Sampling 32 bytes every 64 KB across the chip, **331 of 512 samples hold
+  data, right up to 31.9 MB**.
+
+The second finding kills the idea of hiding at the end of the chip.
+littlefs spreads its blocks over the whole device by design, for wear
+levelling, so there is no quiet tail to borrow. It also never erases blocks
+it has stopped using, so the 65 % figure overstates live data, but either
+way the file system may allocate anywhere, including any region we pick.
+
+### The remaining approach
+
+Take the region and make the file system cleanly absent:
+
+1. Pick a region inside the 1 MB to 32 MB area.
+2. When it is first claimed, **erase the two superblocks at 1 MB** as well.
+   Without a superblock, nothing mounts, so LEGO's firmware takes the
+   "create a fresh file system" path rather than the ambiguous one.
+3. Document that songs and LEGO's data cannot survive each other: putting a
+   song on the hub discards what LEGO's firmware stored, and running LEGO's
+   firmware again reformats the chip and discards the songs.
+
+The firmware must not touch anything above 1 MB until the user asks it to
+store a song, so that installing it does not by itself destroy anything.
 
 ## Other considerations
 
