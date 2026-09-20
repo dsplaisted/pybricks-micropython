@@ -197,9 +197,16 @@ pbio_error_t pbio_sound_mp3_select_file(const char *path) {
 
     // Reading the start of the file says whether it can be played at all,
     // which is friendlier to find out now than when it is due to play.
+    err = pbio_flash_fs_mount();
+    if (err != PBIO_SUCCESS) {
+        return err;
+    }
+
     uint8_t probe;
     uint32_t size_read;
     err = pbio_flash_fs_read_file(full, 0, &probe, sizeof(probe), &size_read);
+    pbio_flash_fs_unmount();
+
     if (err != PBIO_SUCCESS) {
         return err;
     }
