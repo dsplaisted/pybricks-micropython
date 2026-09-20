@@ -74,7 +74,7 @@ class Hub:
         return self.hub._max_write_size - 2
 
 
-async def open_hub(use_ble: bool) -> Hub:
+async def open_hub(use_ble: bool, name: str | None, timeout: float) -> Hub:
     if not use_ble:
         try:
             from usb.core import find as find_usb
@@ -99,7 +99,15 @@ async def open_hub(use_ble: bool) -> Hub:
                     and device.product.endswith("Pybricks")
                 )
 
-            device = find_usb(custom_match=is_pybricks_usb)
+            # Windows has no libusb by default, but the package provides one.
+            try:
+                import libusb_package
+
+                backend = libusb_package.get_libusb1_backend()
+            except ImportError:
+                backend = None
+
+            device = find_usb(custom_match=is_pybricks_usb, backend=backend)
             if device is not None:
                 print("Found a hub on USB.")
                 return Hub(PybricksHubUSB(device))
@@ -110,8 +118,8 @@ async def open_hub(use_ble: bool) -> Hub:
     from pybricksdev.ble import find_device
     from pybricksdev.connections.pybricks import PybricksHubBLE
 
-    print("Looking for a hub over Bluetooth...")
-    return Hub(PybricksHubBLE(await find_device()))
+    print(f"Looking for {name or 'a hub'} over Bluetooth...")
+    return Hub(PybricksHubBLE(await find_device(name, timeout=timeout)))
 
 
 async def list_files(hub: Hub, path: str) -> None:
@@ -192,7 +200,7 @@ async def put_file(hub: Hub, file: Path, path: str) -> None:
 
 
 async def run(args) -> None:
-    hub = await open_hub(args.ble)
+    hub = await open_hub(args.ble, args.name, args.timeout)
     await hub.connect()
     try:
         if args.action == "list":
@@ -211,6 +219,8 @@ def main() -> None:
     parser.add_argument("file", nargs="?", help="file to send, or path on the hub to read")
     parser.add_argument("path", nargs="?", help="where to put it")
     parser.add_argument("--ble", action="store_true", help="use Bluetooth even if USB is available")
+    parser.add_argument("--name", help="name of the hub to connect to")
+    parser.add_argument("--timeout", type=float, default=30, help="seconds to search for the hub")
     args = parser.parse_args()
 
     asyncio.run(run(args))
