@@ -219,6 +219,51 @@ pbio_error_t pbio_flash_fs_get_usage(uint32_t *used_bytes, uint32_t *total_bytes
 }
 
 /**
+ * Opens a file to write it a piece at a time, replacing it if it exists.
+ *
+ * @param [in]  path    File to write.
+ * @return              ::PBIO_ERROR_FAILED if it can't be opened, otherwise
+ *                      ::PBIO_SUCCESS.
+ */
+pbio_error_t pbio_flash_fs_write_open(const char *path) {
+
+    pbio_flash_fs_stream_close();
+
+    pbio_error_t err = pbio_flash_fs_mount();
+    if (err != PBIO_SUCCESS) {
+        return err;
+    }
+
+    if (lfs2_file_opencfg(&lfs, &stream_file, path,
+        LFS2_O_WRONLY | LFS2_O_CREAT | LFS2_O_TRUNC, &stream_config) != LFS2_ERR_OK) {
+        pbio_flash_fs_unmount();
+        return PBIO_ERROR_FAILED;
+    }
+
+    stream_open = true;
+    return PBIO_SUCCESS;
+}
+
+/**
+ * Adds data to the end of the file that is open for writing.
+ *
+ * @param [in]  data    The data to add.
+ * @param [in]  size    Number of bytes to add.
+ * @return              ::PBIO_ERROR_INVALID_OP if no file is open,
+ *                      ::PBIO_ERROR_FAILED if it can't be written, otherwise
+ *                      ::PBIO_SUCCESS.
+ */
+pbio_error_t pbio_flash_fs_write_append(const uint8_t *data, uint32_t size) {
+
+    if (!stream_open) {
+        return PBIO_ERROR_INVALID_OP;
+    }
+
+    return lfs2_file_write(&lfs, &stream_file, data, size) == (lfs2_ssize_t)size ?
+           PBIO_SUCCESS : PBIO_ERROR_FAILED;
+}
+
+/**
  * Opens a file to read it a piece at a time, such as while playing a song.
  *
  * Only one file can be open this way, and the file system stays mounted

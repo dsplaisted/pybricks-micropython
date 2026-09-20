@@ -8,7 +8,10 @@
 #include <string.h>
 
 #include <pbdrv/block_device.h>
+#include <pbdrv/clock.h>
 #include <pbio/flash_fs.h>
+#include <pbio/os.h>
+#include <pbsys/host.h>
 #include <pbdrv/bluetooth.h>
 #include <pbdrv/reset.h>
 #include <pbsys/main.h>
@@ -283,6 +286,77 @@ static mp_obj_t pb_type_System_flash_remove(mp_obj_t path_in) {
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(pb_type_System_flash_remove_obj, pb_type_System_flash_remove);
 
+// Experimental: receives a file over the connection with the computer and
+// writes it to the external flash. Prints READY when it is waiting for data
+// and K after each chunk, so that the sender knows when to continue.
+static mp_obj_t pb_type_System_flash_receive_file(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
+    PB_PARSE_ARGS_FUNCTION(n_args, pos_args, kw_args,
+        PB_ARG_REQUIRED(path),
+        PB_ARG_REQUIRED(size),
+        PB_ARG_DEFAULT_INT(chunk, 1024),
+        PB_ARG_DEFAULT_INT(timeout, 10000));
+
+    const char *path = mp_obj_str_get_str(path_in);
+    uint32_t total = mp_obj_get_int(size_in);
+    uint32_t chunk = mp_obj_get_int(chunk_in);
+    uint32_t timeout = mp_obj_get_int(timeout_in);
+
+    uint8_t *buffer = m_new(uint8_t, chunk);
+
+    pb_assert(pbio_flash_fs_mount());
+
+    pbio_error_t err = pbio_flash_fs_write_open(path);
+    if (err != PBIO_SUCCESS) {
+        pbio_flash_fs_unmount();
+        pb_assert(err);
+    }
+
+    mp_printf(&mp_plat_print, "READY\n");
+
+    uint32_t received = 0;
+    while (received < total) {
+
+        // Collect one chunk, or what is left of the file.
+        uint32_t want = total - received < chunk ? total - received : chunk;
+        uint32_t have = 0;
+        uint32_t last_data = pbdrv_clock_get_ms();
+
+        while (have < want) {
+            uint32_t size_now = want - have;
+            if (pbsys_host_stdin_read(buffer + have, &size_now) == PBIO_SUCCESS) {
+                have += size_now;
+                last_data = pbdrv_clock_get_ms();
+                continue;
+            }
+
+            if (pbdrv_clock_get_ms() - last_data > timeout) {
+                pbio_flash_fs_stream_close();
+                pbio_flash_fs_unmount();
+                mp_raise_msg(&mp_type_RuntimeError, MP_ERROR_TEXT("timed out waiting for data"));
+            }
+
+            // Let the connection and everything else run while waiting.
+            pbio_os_run_processes_and_wait_for_event();
+        }
+
+        err = pbio_flash_fs_write_append(buffer, have);
+        if (err != PBIO_SUCCESS) {
+            pbio_flash_fs_stream_close();
+            pbio_flash_fs_unmount();
+            pb_assert(err);
+        }
+
+        received += have;
+        mp_printf(&mp_plat_print, "K\n");
+    }
+
+    pbio_flash_fs_stream_close();
+    pbio_flash_fs_unmount();
+
+    return mp_obj_new_int_from_uint(received);
+}
+static MP_DEFINE_CONST_FUN_OBJ_KW(pb_type_System_flash_receive_file_obj, 0, pb_type_System_flash_receive_file);
+
 static mp_obj_t pb_type_System_flash_usage(void) {
 
     pb_assert(pbio_flash_fs_mount());
@@ -308,6 +382,7 @@ static const mp_rom_map_elem_t common_System_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_flash_read_file), MP_ROM_PTR(&pb_type_System_flash_read_file_obj) },
     { MP_ROM_QSTR(MP_QSTR_flash_write_file), MP_ROM_PTR(&pb_type_System_flash_write_file_obj) },
     { MP_ROM_QSTR(MP_QSTR_flash_remove), MP_ROM_PTR(&pb_type_System_flash_remove_obj) },
+    { MP_ROM_QSTR(MP_QSTR_flash_receive_file), MP_ROM_PTR(&pb_type_System_flash_receive_file_obj) },
     #endif
     #if PBDRV_CONFIG_BLOCK_DEVICE_RAW_ACCESS
     { MP_ROM_QSTR(MP_QSTR_flash_read), MP_ROM_PTR(&pb_type_System_flash_read_obj) },
