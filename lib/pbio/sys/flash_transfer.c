@@ -28,7 +28,7 @@
 
 #include "./flash_transfer.h"
 
-// Notifications hold very little, so answers are sent as a stream of small
+// An answer can be longer than one notification, so it is sent as a stream of
 // pieces that the computer puts back together.
 #define DATA_SIZE (PBDRV_BLUETOOTH_MAX_CHAR_SIZE - 2)
 
@@ -40,8 +40,10 @@ static uint32_t pbsys_flash_transfer_data_size(void) {
     return size < DATA_SIZE ? size : DATA_SIZE;
 }
 
-// Room for one line of a listing or one piece of a file.
-#define WORK_SIZE (96)
+// Room for one line of a listing or one piece of a file. Asking for a big
+// piece at a time is what makes reading fast, since each request costs a
+// round trip no matter how much it carries.
+#define WORK_SIZE (512)
 
 static struct {
     /** Whether a request is waiting to be answered. */

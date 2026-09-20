@@ -177,37 +177,34 @@ async def list_files(hub: Hub, path: str) -> None:
             print(f"  {name:<28s} {size}")
 
 
+# As much of a file as the hub will read at once.
+CHUNK = 512
+
+
 async def get_file(hub: Hub, path: str, destination: Path) -> None:
     data = bytearray()
-    chunk = 100
+    start = time.monotonic()
 
     while True:
         await hub.command(
             bytes([COMMAND_READ_FLASH_FILE, READ]),
-            struct.pack("<IH", len(data), chunk),
+            struct.pack("<IH", len(data), CHUNK),
             path.encode(),
         )
 
-        piece = b""
-        while True:
-            reply = await hub.reply()
-            if reply[0] == REPLY_DATA:
-                piece = reply[2:]
-            elif reply[0] == REPLY_END:
-                break
-            elif reply[0] == REPLY_ERROR:
-                raise RuntimeError(f"the hub could not read {path}")
-
+        piece = await collect(hub, f"read {path}")
         data.extend(piece)
-        print(f"\r  {len(data)} bytes", end="")
+
+        elapsed = time.monotonic() - start
+        print(f"\r  {len(data) / 1024:7.1f} KB   {len(data) / 1024 / elapsed:5.1f} KB/s", end="")
 
         # A short piece means the end of the file.
-        if len(piece) < chunk:
+        if len(piece) < CHUNK:
             break
 
     print()
     destination.write_bytes(data)
-    print(f"Wrote {len(data)} bytes to {destination}.")
+    print(f"Wrote {len(data)} bytes to {destination} in {time.monotonic() - start:.1f} s.")
 
 
 async def put_file(hub: Hub, file: Path, path: str) -> None:

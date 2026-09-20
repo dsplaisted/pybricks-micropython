@@ -51,32 +51,46 @@ static uint32_t pbdrv_bluetooth_noti_size[PBIO_PYBRICKS_EVENT_NUM_EVENTS];
 // to wait for another. Only the events that send a lot of data need a big
 // one, so they are sized individually rather than all alike.
 static uint8_t noti_buf_status[1 + PBIO_PYBRICKS_EVENT_STATUS_REPORT_SIZE];
-static uint8_t noti_buf_stdout[1 + PBDRV_BLUETOOTH_MAX_CHAR_SIZE];
 static uint8_t noti_buf_app_data[1 + PBDRV_BLUETOOTH_MIN_CHAR_SIZE];
 static uint8_t noti_buf_telemetry[1 + PBDRV_BLUETOOTH_MIN_CHAR_SIZE];
-#if PBIO_CONFIG_FLASH_FS
-static uint8_t noti_buf_flash[1 + PBDRV_BLUETOOTH_MAX_CHAR_SIZE];
-#endif
+
+// Printing and reading files both send a lot but never need to be quick at
+// the same time, so they share one big buffer. Whichever is using it makes
+// the other wait, which is what the ring buffer of printed output is for.
+static uint8_t noti_buf_bulk[1 + PBDRV_BLUETOOTH_MAX_CHAR_SIZE];
 
 static uint8_t *const pbdrv_bluetooth_noti_buf[PBIO_PYBRICKS_EVENT_NUM_EVENTS] = {
     [PBIO_PYBRICKS_EVENT_STATUS_REPORT] = noti_buf_status,
-    [PBIO_PYBRICKS_EVENT_WRITE_STDOUT] = noti_buf_stdout,
+    [PBIO_PYBRICKS_EVENT_WRITE_STDOUT] = noti_buf_bulk,
     [PBIO_PYBRICKS_EVENT_WRITE_APP_DATA] = noti_buf_app_data,
     [PBIO_PYBRICKS_EVENT_WRITE_TELEMETRY] = noti_buf_telemetry,
     #if PBIO_CONFIG_FLASH_FS
-    [PBIO_PYBRICKS_EVENT_FLASH_FILE_DATA] = noti_buf_flash,
+    [PBIO_PYBRICKS_EVENT_FLASH_FILE_DATA] = noti_buf_bulk,
     #endif
 };
 
 static const uint16_t pbdrv_bluetooth_noti_capacity[PBIO_PYBRICKS_EVENT_NUM_EVENTS] = {
     [PBIO_PYBRICKS_EVENT_STATUS_REPORT] = sizeof(noti_buf_status),
-    [PBIO_PYBRICKS_EVENT_WRITE_STDOUT] = sizeof(noti_buf_stdout),
+    [PBIO_PYBRICKS_EVENT_WRITE_STDOUT] = sizeof(noti_buf_bulk),
     [PBIO_PYBRICKS_EVENT_WRITE_APP_DATA] = sizeof(noti_buf_app_data),
     [PBIO_PYBRICKS_EVENT_WRITE_TELEMETRY] = sizeof(noti_buf_telemetry),
     #if PBIO_CONFIG_FLASH_FS
-    [PBIO_PYBRICKS_EVENT_FLASH_FILE_DATA] = sizeof(noti_buf_flash),
+    [PBIO_PYBRICKS_EVENT_FLASH_FILE_DATA] = sizeof(noti_buf_bulk),
     #endif
 };
+
+/**
+ * Tests whether the buffer for this kind of event holds something that has
+ * not been sent yet, including an event of another kind sharing it.
+ */
+static bool pbdrv_bluetooth_noti_busy(pbio_pybricks_event_t event_type) {
+    for (uint32_t i = 0; i < PBIO_PYBRICKS_EVENT_NUM_EVENTS; i++) {
+        if (pbdrv_bluetooth_noti_size[i] && pbdrv_bluetooth_noti_buf[i] == pbdrv_bluetooth_noti_buf[event_type]) {
+            return true;
+        }
+    }
+    return false;
+}
 
 /**
  * Gets how much of an event of this kind can be sent at once.
@@ -183,7 +197,7 @@ pbio_error_t pbdrv_bluetooth_send_event_notification(pbio_os_state_t *state, pbi
     }
 
     // Existing notification waiting to be sent first.
-    if (pbdrv_bluetooth_noti_size[event_type]) {
+    if (pbdrv_bluetooth_noti_busy(event_type)) {
         return PBIO_ERROR_BUSY;
     }
 
@@ -555,8 +569,11 @@ static bool update_and_get_event_buffer(uint8_t **buf, uint32_t **len) {
         pbio_os_timer_set(&status_timer, PBDRV_BLUETOOTH_STATUS_UPDATE_INTERVAL);
     }
 
-    // Prepare stdout, drain into chunk of maximum send size.
-    if (lwrb_get_full(&stdout_ring_buf) != 0) {
+    // Prepare stdout, drain into chunk of maximum send size. Skipped while
+    // the shared buffer holds another kind of event.
+    if (lwrb_get_full(&stdout_ring_buf) != 0 &&
+        !(pbdrv_bluetooth_noti_size[PBIO_PYBRICKS_EVENT_WRITE_STDOUT] == 0 &&
+          pbdrv_bluetooth_noti_busy(PBIO_PYBRICKS_EVENT_WRITE_STDOUT))) {
         // Message always starts with event byte.
         if (!pbdrv_bluetooth_noti_size[PBIO_PYBRICKS_EVENT_WRITE_STDOUT]) {
             pbdrv_bluetooth_noti_buf[PBIO_PYBRICKS_EVENT_WRITE_STDOUT][0] = PBIO_PYBRICKS_EVENT_WRITE_STDOUT;

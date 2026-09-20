@@ -31,7 +31,7 @@
 #define PBDRV_CONFIG_BLUETOOTH_MAX_MTU_SIZE         515
 // This radio negotiates a large message size, so bigger notifications can be
 // used, which makes printing and reading files much faster.
-#define PBDRV_BLUETOOTH_MAX_CHAR_SIZE               128
+#define PBDRV_BLUETOOTH_MAX_CHAR_SIZE               244
 #define PBDRV_CONFIG_BLUETOOTH_BTSTACK              (1)
 #define PBDRV_CONFIG_BLUETOOTH_BTSTACK_NUM_LE_HOSTS (2)
 #define PBDRV_CONFIG_BLUETOOTH_BTSTACK_STM32        (1)
