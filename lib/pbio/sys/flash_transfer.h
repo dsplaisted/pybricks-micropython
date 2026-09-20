@@ -25,14 +25,12 @@ enum {
  * First byte of the events that answer such a request.
  */
 enum {
-    /** One entry of a directory: is_dir, size and name follow. */
-    PBSYS_FLASH_TRANSFER_REPLY_ENTRY = 0,
-    /** A piece of a file, which follows. */
-    PBSYS_FLASH_TRANSFER_REPLY_DATA = 1,
+    /** A piece of the answer, which follows. */
+    PBSYS_FLASH_TRANSFER_REPLY_DATA = 0,
     /** The answer is complete. */
-    PBSYS_FLASH_TRANSFER_REPLY_END = 2,
-    /** The request failed. */
-    PBSYS_FLASH_TRANSFER_REPLY_ERROR = 3,
+    PBSYS_FLASH_TRANSFER_REPLY_END = 1,
+    /** The request failed, with the step and the error following. */
+    PBSYS_FLASH_TRANSFER_REPLY_ERROR = 2,
 };
 
 #if PBIO_CONFIG_FLASH_FS

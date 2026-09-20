@@ -35,7 +35,10 @@ LIST, READ = 0, 1
 
 # Event that answers the read command, and the kinds of answer.
 EVENT_FLASH_FILE_DATA = 4
-REPLY_ENTRY, REPLY_DATA, REPLY_END, REPLY_ERROR = 0, 1, 2, 3
+REPLY_DATA, REPLY_END, REPLY_ERROR = 0, 1, 2
+
+# Which step of the answer failed, for the error reply.
+STEPS = {1: "open directory", 2: "read entry", 3: "send", 4: "open file", 5: "send"}
 
 
 class Hub:
@@ -145,22 +148,33 @@ async def open_hub(use_ble: bool, name: str | None, timeout: float) -> Hub:
     return Hub(PybricksHubBLE(await find_device(name, timeout=timeout)))
 
 
-async def list_files(hub: Hub, path: str) -> None:
-    await hub.command(bytes([COMMAND_READ_FLASH_FILE, LIST]), path.encode())
+async def collect(hub: Hub, what: str) -> bytes:
+    """Gathers the pieces of one answer from the hub."""
+    data = bytearray()
 
     while True:
         reply = await hub.reply()
-        kind = reply[0]
 
-        if kind == REPLY_ENTRY:
-            is_dir = reply[1]
-            size = struct.unpack("<I", reply[2:6])[0]
-            name = reply[6:].decode()
-            print(f"  {name + '/' if is_dir else name:<28s} {'' if is_dir else size}")
-        elif kind == REPLY_END:
-            return
-        elif kind == REPLY_ERROR:
-            raise RuntimeError(f"the hub could not list {path}")
+        if reply[0] == REPLY_DATA:
+            data.extend(reply[1:])
+        elif reply[0] == REPLY_END:
+            return bytes(data)
+        elif reply[0] == REPLY_ERROR:
+            step = STEPS.get(reply[1], "step {}".format(reply[1]))
+            raise RuntimeError(f"the hub could not {what}: failed to {step}, error {reply[2]}")
+
+
+async def list_files(hub: Hub, path: str) -> None:
+    await hub.command(bytes([COMMAND_READ_FLASH_FILE, LIST]), path.encode())
+
+    listing = await collect(hub, f"list {path}")
+
+    for line in listing.decode().splitlines():
+        kind, size, name = line.split(" ", 2)
+        if kind == "d":
+            print(f"  {name + '/':<28s}")
+        else:
+            print(f"  {name:<28s} {size}")
 
 
 async def get_file(hub: Hub, path: str, destination: Path) -> None:

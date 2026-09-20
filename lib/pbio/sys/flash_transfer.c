@@ -22,13 +22,18 @@
 #include <pbio/protocol.h>
 #include <pbio/util.h>
 
+#include <pbdrv/bluetooth.h>
+
 #include <pbsys/host.h>
 
 #include "./flash_transfer.h"
 
-// Enough for a name of an entry or a piece of a file, within the size that
-// can be sent in one event on any transport.
-#define PAYLOAD_SIZE (128)
+// Notifications hold very little, so answers are sent as a stream of small
+// pieces that the computer puts back together.
+#define DATA_SIZE (PBDRV_BLUETOOTH_MAX_CHAR_SIZE - 2)
+
+// Room for one line of a listing or one piece of a file.
+#define WORK_SIZE (96)
 
 static struct {
     /** Whether a request is waiting to be answered. */
@@ -40,7 +45,8 @@ static struct {
     uint32_t size;
 } request;
 
-static uint8_t payload[PAYLOAD_SIZE + 6];
+static uint8_t payload[DATA_SIZE + 1];
+static uint8_t work[WORK_SIZE];
 
 static pbio_os_process_t pbsys_flash_transfer_process;
 
@@ -67,8 +73,8 @@ pbio_pybricks_error_t pbsys_flash_transfer_request(uint8_t operation, const uint
     if (operation == PBSYS_FLASH_TRANSFER_READ) {
         request.offset = pbio_get_uint32_le(&data[0]);
         request.size = pbio_get_uint16_le(&data[4]);
-        if (request.size > PAYLOAD_SIZE) {
-            request.size = PAYLOAD_SIZE;
+        if (request.size > WORK_SIZE) {
+            request.size = WORK_SIZE;
         }
     }
 
@@ -88,10 +94,10 @@ pbio_pybricks_error_t pbsys_flash_transfer_request(uint8_t operation, const uint
 }
 
 /**
- * Sends one answer, waiting if the connection is busy with something else,
- * such as a status report.
+ * Sends one notification, waiting if the connection is busy with something
+ * else, such as a status report.
  */
-static pbio_error_t pbsys_flash_transfer_send(pbio_os_state_t *state, const uint8_t *data, uint32_t size) {
+static pbio_error_t pbsys_flash_transfer_send(pbio_os_state_t *state, uint32_t size) {
 
     static pbio_os_state_t sub;
     static pbio_os_timer_t timer;
@@ -102,7 +108,7 @@ static pbio_error_t pbsys_flash_transfer_send(pbio_os_state_t *state, const uint
 
     for (tries = 0; tries < 100; tries++) {
         PBIO_OS_AWAIT(state, &sub, err = pbsys_host_send_event(&sub,
-            PBIO_PYBRICKS_EVENT_FLASH_FILE_DATA, data, size));
+            PBIO_PYBRICKS_EVENT_FLASH_FILE_DATA, payload, size));
 
         if (err != PBIO_ERROR_BUSY) {
             return err;
@@ -117,6 +123,65 @@ static pbio_error_t pbsys_flash_transfer_send(pbio_os_state_t *state, const uint
     PBIO_OS_ASYNC_END(PBIO_SUCCESS);
 }
 
+/**
+ * Sends part of the answer, in pieces small enough for a notification.
+ */
+static pbio_error_t pbsys_flash_transfer_send_data(pbio_os_state_t *state, uint32_t size) {
+
+    static pbio_os_state_t sub;
+    static uint32_t sent;
+    static uint32_t size_now;
+    pbio_error_t err;
+
+    PBIO_OS_ASYNC_BEGIN(state);
+
+    for (sent = 0; sent < size; sent += size_now) {
+        size_now = size - sent < DATA_SIZE ? size - sent : DATA_SIZE;
+
+        payload[0] = PBSYS_FLASH_TRANSFER_REPLY_DATA;
+        memcpy(&payload[1], &work[sent], size_now);
+
+        PBIO_OS_AWAIT(state, &sub, err = pbsys_flash_transfer_send(&sub, size_now + 1));
+        if (err != PBIO_SUCCESS) {
+            return err;
+        }
+    }
+
+    PBIO_OS_ASYNC_END(PBIO_SUCCESS);
+}
+
+/**
+ * Writes one entry of a listing into the work buffer, as a line of text:
+ * the kind, the size and the name.
+ *
+ * @return  Length of the line.
+ */
+static uint32_t pbsys_flash_transfer_format_entry(const char *name, uint32_t size, bool is_dir) {
+
+    uint32_t length = 0;
+    work[length++] = is_dir ? 'd' : 'f';
+    work[length++] = ' ';
+
+    // The size in decimal, without needing string formatting.
+    char digits[10];
+    uint32_t count = 0;
+    do {
+        digits[count++] = '0' + size % 10;
+        size /= 10;
+    } while (size > 0);
+    while (count > 0) {
+        work[length++] = digits[--count];
+    }
+
+    work[length++] = ' ';
+    while (*name && length < WORK_SIZE - 1) {
+        work[length++] = *name++;
+    }
+    work[length++] = '\n';
+
+    return length;
+}
+
 static pbio_error_t pbsys_flash_transfer_process_thread(pbio_os_state_t *state, void *context) {
 
     static pbio_os_state_t sub;
@@ -128,6 +193,7 @@ static pbio_error_t pbsys_flash_transfer_process_thread(pbio_os_state_t *state, 
     static pbio_error_t err;
     // Which step failed, to help find out why.
     static uint8_t stage;
+    static char name[64];
 
     PBIO_OS_ASYNC_BEGIN(state);
 
@@ -143,18 +209,15 @@ static pbio_error_t pbsys_flash_transfer_process_thread(pbio_os_state_t *state, 
             while (err == PBIO_SUCCESS) {
 
                 stage = 2;
-                err = pbio_flash_fs_list_next(&((char *)payload)[6], PAYLOAD_SIZE, &entry_size, &is_dir, &done);
+                err = pbio_flash_fs_list_next(name, sizeof(name), &entry_size, &is_dir, &done);
                 if (err != PBIO_SUCCESS || done) {
                     break;
                 }
 
-                payload[0] = PBSYS_FLASH_TRANSFER_REPLY_ENTRY;
-                payload[1] = is_dir;
-                pbio_set_uint32_le(&payload[2], entry_size);
-                payload_size = 6 + strlen(&((char *)payload)[6]);
+                payload_size = pbsys_flash_transfer_format_entry(name, entry_size, is_dir);
 
                 stage = 3;
-                PBIO_OS_AWAIT(state, &sub, err = pbsys_flash_transfer_send(&sub, payload, payload_size));
+                PBIO_OS_AWAIT(state, &sub, err = pbsys_flash_transfer_send_data(&sub, payload_size));
             }
 
             pbio_flash_fs_list_close();
@@ -164,15 +227,13 @@ static pbio_error_t pbsys_flash_transfer_process_thread(pbio_os_state_t *state, 
             stage = 4;
             err = pbio_flash_fs_mount();
             if (err == PBIO_SUCCESS) {
-                err = pbio_flash_fs_read_file(request.path, request.offset, &payload[2], request.size, &size_read);
+                err = pbio_flash_fs_read_file(request.path, request.offset, work, request.size, &size_read);
                 pbio_flash_fs_unmount();
             }
 
             if (err == PBIO_SUCCESS) {
-                payload[0] = PBSYS_FLASH_TRANSFER_REPLY_DATA;
-                payload[1] = 0;
-                payload_size = 2 + size_read;
-                PBIO_OS_AWAIT(state, &sub, err = pbsys_flash_transfer_send(&sub, payload, payload_size));
+                stage = 5;
+                PBIO_OS_AWAIT(state, &sub, err = pbsys_flash_transfer_send_data(&sub, size_read));
             }
         }
 
@@ -181,7 +242,7 @@ static pbio_error_t pbsys_flash_transfer_process_thread(pbio_os_state_t *state, 
             PBSYS_FLASH_TRANSFER_REPLY_END : PBSYS_FLASH_TRANSFER_REPLY_ERROR;
         payload[1] = stage;
         payload[2] = (uint8_t)err;
-        PBIO_OS_AWAIT(state, &sub, pbsys_flash_transfer_send(&sub, payload, 3));
+        PBIO_OS_AWAIT(state, &sub, pbsys_flash_transfer_send(&sub, 3));
 
         request.pending = false;
     }
