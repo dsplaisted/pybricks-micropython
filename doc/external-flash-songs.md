@@ -43,6 +43,30 @@ its file system, and the songs are lost.
 Below 1 MB is not an option either: only about 250 KB is free there, and a
 LEGO firmware update can overwrite all of it.
 
+### Can it stop LEGO's firmware from working?
+
+No, as long as the file system is left in a state that LEGO's firmware
+recognises as empty.
+
+- **Reflashing always works.** The bootloader and the firmware live in the
+  internal flash of the chip, not in the external flash. The first 32 KB of
+  internal flash cannot be erased and is entered with a button, so DFU is
+  always available no matter what the external flash contains.
+- **An empty file system is recreated automatically.** In
+  `micropython/ports/stm32/main.c`, `init_flash_fs()` creates a fresh file
+  system when mounting fails because there is none. LEGO's firmware is
+  built on this port, so a hub whose file system was overwritten should
+  come up with an empty one.
+- **The case to avoid** is in the same function: a partly valid littlefs
+  superblock makes it fall back to a default block device and leave
+  recovery to the user, instead of formatting.
+
+So when the song region is first claimed, the firmware should also erase
+the first two blocks at the 1 MB offset, where both littlefs and FAT keep
+the data that identifies the file system. That turns "damaged file system"
+into "no file system", which is the case that recovers by itself. Failing
+that, the app's factory reset recreates it.
+
 So the two cannot coexist. The realistic choices are:
 
 1. **Accept and document it.** Songs live above 1 MB. Switching back to
