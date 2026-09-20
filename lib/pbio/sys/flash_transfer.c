@@ -32,6 +32,14 @@
 // pieces that the computer puts back together.
 #define DATA_SIZE (PBDRV_BLUETOOTH_MAX_CHAR_SIZE - 2)
 
+// What fits right now, which is less on a connection that agreed to less.
+static uint32_t pbsys_flash_transfer_data_size(void) {
+    uint32_t size = pbdrv_bluetooth_get_max_message_size();
+    // One byte for the event, one for the kind of answer.
+    size = size > 2 ? size - 2 : 1;
+    return size < DATA_SIZE ? size : DATA_SIZE;
+}
+
 // Room for one line of a listing or one piece of a file.
 #define WORK_SIZE (96)
 
@@ -136,7 +144,10 @@ static pbio_error_t pbsys_flash_transfer_send_data(pbio_os_state_t *state, uint3
     PBIO_OS_ASYNC_BEGIN(state);
 
     for (sent = 0; sent < size; sent += size_now) {
-        size_now = size - sent < DATA_SIZE ? size - sent : DATA_SIZE;
+        size_now = pbsys_flash_transfer_data_size();
+        if (size - sent < size_now) {
+            size_now = size - sent;
+        }
 
         payload[0] = PBSYS_FLASH_TRANSFER_REPLY_DATA;
         memcpy(&payload[1], &work[sent], size_now);

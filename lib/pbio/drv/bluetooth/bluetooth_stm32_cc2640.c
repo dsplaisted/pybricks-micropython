@@ -2054,6 +2054,17 @@ HCI_StatusCodes_t HCI_sendHCICommand(uint16_t opcode, uint8_t *payload_data, uin
     return bleSUCCESS;
 }
 
+/**
+ * Gets how much can be sent in one notification.
+ *
+ * This radio does not negotiate a bigger size, so it is always the same.
+ *
+ * @return  Size in bytes.
+ */
+uint16_t pbdrv_bluetooth_get_max_message_size(void) {
+    return PBDRV_BLUETOOTH_MAX_CHAR_SIZE;
+}
+
 void pbdrv_bluetooth_init_hci(void) {
     pbdrv_gpio_set_pull(&pdata->reset_gpio, PBDRV_GPIO_PULL_NONE);
     bluetooth_reset(RESET_STATE_OUT_LOW);

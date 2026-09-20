@@ -19,7 +19,13 @@
 #include <lego/lwp3.h>
 
 #define PBDRV_BLUETOOTH_STATUS_UPDATE_INTERVAL (500)
+// Largest amount that can be sent in one notification. Hubs whose radio can
+// negotiate a bigger size may raise this in their platform configuration.
+// Connections that agree to less are respected by sending only what fits,
+// which pbdrv_bluetooth_get_max_message_size() reports.
+#ifndef PBDRV_BLUETOOTH_MAX_CHAR_SIZE
 #define PBDRV_BLUETOOTH_MAX_CHAR_SIZE 20
+#endif
 #define PBDRV_BLUETOOTH_MAX_ADV_SIZE 31
 
 /** Data structure that holds context needed for sending BLE notifications. */
@@ -255,6 +261,8 @@ typedef struct {
  * Initializes the Bluetooth driver.
  */
 void pbdrv_bluetooth_init(void);
+
+uint16_t pbdrv_bluetooth_get_max_message_size(void);
 
 /**
  * Deinitializes the Bluetooth driver.

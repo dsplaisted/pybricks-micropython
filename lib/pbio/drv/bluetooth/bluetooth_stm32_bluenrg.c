@@ -1351,6 +1351,17 @@ static pbio_error_t pbdrv_bluetooth_spi_process_thread(pbio_os_state_t *state, v
     PBIO_OS_ASYNC_END(PBIO_ERROR_FAILED);
 }
 
+/**
+ * Gets how much can be sent in one notification.
+ *
+ * This radio does not negotiate a bigger size, so it is always the same.
+ *
+ * @return  Size in bytes.
+ */
+uint16_t pbdrv_bluetooth_get_max_message_size(void) {
+    return PBDRV_BLUETOOTH_MAX_CHAR_SIZE;
+}
+
 void pbdrv_bluetooth_init_hci(void) {
     bluetooth_reset(true);
     spi_init();

@@ -129,6 +129,34 @@ typedef struct {
 static pbdrv_bluetooth_btstack_host_connection_t host_connections[PBDRV_CONFIG_BLUETOOTH_BTSTACK_NUM_LE_HOSTS];
 #endif
 
+/**
+ * Gets how much can be sent in one notification.
+ *
+ * This is the smallest size that all connected hosts agreed to, since the
+ * same value is used for all of them, and never more than the buffers hold.
+ *
+ * @return  Size in bytes.
+ */
+uint16_t pbdrv_bluetooth_get_max_message_size(void) {
+
+    uint16_t mtu = PBDRV_CONFIG_BLUETOOTH_MAX_MTU_SIZE;
+
+    for (size_t i = 0; i < PBDRV_CONFIG_BLUETOOTH_BTSTACK_NUM_LE_HOSTS; i++) {
+        pbdrv_bluetooth_btstack_host_connection_t *host = &host_connections[i];
+        if (host->con_handle == HCI_CON_HANDLE_INVALID) {
+            continue;
+        }
+        uint16_t host_mtu = att_server_get_mtu(host->con_handle);
+        if (host_mtu && host_mtu < mtu) {
+            mtu = host_mtu;
+        }
+    }
+
+    // Three bytes go to the notification itself.
+    uint16_t size = mtu > 3 ? mtu - 3 : 0;
+    return size < PBDRV_BLUETOOTH_MAX_CHAR_SIZE ? size : PBDRV_BLUETOOTH_MAX_CHAR_SIZE;
+}
+
 static pbdrv_bluetooth_btstack_host_connection_t *pbdrv_bluetooth_btstack_get_host_connection(hci_con_handle_t con_handle) {
     #if PBDRV_CONFIG_BLUETOOTH_BTSTACK_NUM_LE_HOSTS
     for (size_t i = 0; i < PBDRV_CONFIG_BLUETOOTH_BTSTACK_NUM_LE_HOSTS; i++) {

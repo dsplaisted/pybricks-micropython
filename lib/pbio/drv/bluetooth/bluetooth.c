@@ -134,7 +134,7 @@ pbio_error_t pbdrv_bluetooth_send_event_notification(pbio_os_state_t *state, pbi
         return PBIO_ERROR_INVALID_OP;
     }
 
-    if (size + 1 > PBIO_ARRAY_SIZE(pbdrv_bluetooth_noti_buf[0]) || event_type >= PBIO_PYBRICKS_EVENT_NUM_EVENTS) {
+    if (size + 1 > pbdrv_bluetooth_get_max_message_size() || event_type >= PBIO_PYBRICKS_EVENT_NUM_EVENTS) {
         return PBIO_ERROR_INVALID_ARG;
     }
 
@@ -519,9 +519,12 @@ static bool update_and_get_event_buffer(uint8_t **buf, uint32_t **len) {
             pbdrv_bluetooth_noti_size[PBIO_PYBRICKS_EVENT_WRITE_STDOUT] = 1;
         }
         // Drain ring buffer to send buffer as much as we can.
-        uint32_t stdout_free = sizeof(pbdrv_bluetooth_noti_buf[PBIO_PYBRICKS_EVENT_WRITE_STDOUT]) - pbdrv_bluetooth_noti_size[PBIO_PYBRICKS_EVENT_WRITE_STDOUT];
+        // Never more than this connection agreed to.
+        uint32_t stdout_max = pbdrv_bluetooth_get_max_message_size();
+        uint32_t stdout_free = stdout_max > pbdrv_bluetooth_noti_size[PBIO_PYBRICKS_EVENT_WRITE_STDOUT] ?
+            stdout_max - pbdrv_bluetooth_noti_size[PBIO_PYBRICKS_EVENT_WRITE_STDOUT] : 0;
         if (stdout_free) {
-            uint8_t *dest = &pbdrv_bluetooth_noti_buf[PBIO_PYBRICKS_EVENT_WRITE_STDOUT][sizeof(pbdrv_bluetooth_noti_buf[PBIO_PYBRICKS_EVENT_WRITE_STDOUT]) - stdout_free];
+            uint8_t *dest = &pbdrv_bluetooth_noti_buf[PBIO_PYBRICKS_EVENT_WRITE_STDOUT][pbdrv_bluetooth_noti_size[PBIO_PYBRICKS_EVENT_WRITE_STDOUT]];
             pbdrv_bluetooth_noti_size[PBIO_PYBRICKS_EVENT_WRITE_STDOUT] += lwrb_read(&stdout_ring_buf, dest, stdout_free);
         }
     }
