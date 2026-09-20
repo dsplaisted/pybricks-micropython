@@ -27,7 +27,8 @@ while True:
     pressed = hub.buttons.pressed()
 
     if Button.CENTER in pressed:
-        print(hub.speaker.toggle_mp3(loop=True, persist=True))
+        playing = hub.speaker.play_pause_mp3(loop=True, persist=True)
+        print("playing" if playing else "paused")
         # Wait for the release, so one press is one action.
         while Button.CENTER in hub.buttons.pressed():
             wait(POLL)
