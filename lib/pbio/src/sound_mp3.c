@@ -344,6 +344,24 @@ void pbio_sound_mp3_stop(void) {
 }
 
 /**
+ * Tests if sound is currently playing.
+ *
+ * @return  @c true if playing, @c false when stopped or paused.
+ */
+bool pbio_sound_mp3_is_playing(void) {
+    return player.streaming;
+}
+
+/**
+ * Tests if playback is paused and can be resumed.
+ *
+ * @return  @c true if paused.
+ */
+bool pbio_sound_mp3_is_paused(void) {
+    return player.paused;
+}
+
+/**
  * Pauses playback, keeping the position in the song.
  */
 void pbio_sound_mp3_pause(void) {

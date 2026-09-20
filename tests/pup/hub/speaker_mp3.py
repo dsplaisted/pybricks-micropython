@@ -121,7 +121,7 @@ print(
 if WAIT_FOR_SONG_END:
     # Check that playback stops by itself at the end of the song.
     print("Waiting for the song to end...")
-    while hub.speaker.mp3_stats()["playing"]:
+    while hub.speaker.mp3_state() == "playing":
         wait(1000)
     print("Done. Played {} half buffers.".format(hub.speaker.mp3_stats()["halves_played"]))
 else:

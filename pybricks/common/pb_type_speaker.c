@@ -347,18 +347,11 @@ extern const uint32_t pb_mp3_data_size;
 // playing. Playback is always stopped when the program ends.
 MP_REGISTER_ROOT_POINTER(void *pb_mp3_context);
 
-static mp_obj_t pb_type_Speaker_play_mp3(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
-    PB_PARSE_ARGS_METHOD(n_args, pos_args, kw_args,
-        pb_type_Speaker_obj_t, self,
-        PB_ARG_DEFAULT_FALSE(loop),
-        PB_ARG_DEFAULT_FALSE(persist));
-    // The volume is shared, so nothing else is needed from the instance.
-    (void)self;
+static void pb_type_Speaker_start_mp3(bool loop, bool persist) {
 
     // Stop first, so the old memory is no longer used when replaced.
     pbio_sound_mp3_stop();
 
-    bool persist = mp_obj_is_true(persist_in);
     if (persist) {
         // Reserved memory that is not reused when this program ends, so that
         // the sound can keep playing during and after the next programs.
@@ -369,8 +362,18 @@ static mp_obj_t pb_type_Speaker_play_mp3(size_t n_args, const mp_obj_t *pos_args
 
     void *context = persist ? pbsys_storage_get_sound_memory() : MP_STATE_VM(pb_mp3_context);
 
-    pb_assert(pbio_sound_mp3_start(context, pb_mp3_data, pb_mp3_data_size,
-        mp_obj_is_true(loop_in), persist));
+    pb_assert(pbio_sound_mp3_start(context, pb_mp3_data, pb_mp3_data_size, loop, persist));
+}
+
+static mp_obj_t pb_type_Speaker_play_mp3(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
+    PB_PARSE_ARGS_METHOD(n_args, pos_args, kw_args,
+        pb_type_Speaker_obj_t, self,
+        PB_ARG_DEFAULT_FALSE(loop),
+        PB_ARG_DEFAULT_FALSE(persist));
+    // The volume is shared, so nothing else is needed from the instance.
+    (void)self;
+
+    pb_type_Speaker_start_mp3(mp_obj_is_true(loop_in), mp_obj_is_true(persist_in));
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_KW(pb_type_Speaker_play_mp3_obj, 1, pb_type_Speaker_play_mp3);
@@ -386,6 +389,37 @@ static mp_obj_t pb_type_Speaker_resume_mp3(mp_obj_t self_in) {
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(pb_type_Speaker_resume_mp3_obj, pb_type_Speaker_resume_mp3);
+
+static mp_obj_t pb_type_Speaker_mp3_state(mp_obj_t self_in) {
+    if (pbio_sound_mp3_is_playing()) {
+        return MP_OBJ_NEW_QSTR(MP_QSTR_playing);
+    }
+    if (pbio_sound_mp3_is_paused()) {
+        return MP_OBJ_NEW_QSTR(MP_QSTR_paused);
+    }
+    return MP_OBJ_NEW_QSTR(MP_QSTR_stopped);
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(pb_type_Speaker_mp3_state_obj, pb_type_Speaker_mp3_state);
+
+static mp_obj_t pb_type_Speaker_toggle_mp3(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
+    PB_PARSE_ARGS_METHOD(n_args, pos_args, kw_args,
+        pb_type_Speaker_obj_t, self,
+        PB_ARG_DEFAULT_FALSE(loop),
+        PB_ARG_DEFAULT_FALSE(persist));
+
+    // Acts like a play/pause button: pauses while playing, continues when
+    // paused, and starts from the beginning when stopped.
+    if (pbio_sound_mp3_is_playing()) {
+        pbio_sound_mp3_pause();
+    } else if (pbio_sound_mp3_is_paused()) {
+        pbio_sound_mp3_resume();
+    } else {
+        pb_type_Speaker_start_mp3(mp_obj_is_true(loop_in), mp_obj_is_true(persist_in));
+    }
+
+    return pb_type_Speaker_mp3_state(MP_OBJ_FROM_PTR(self));
+}
+static MP_DEFINE_CONST_FUN_OBJ_KW(pb_type_Speaker_toggle_mp3_obj, 1, pb_type_Speaker_toggle_mp3);
 
 static mp_obj_t pb_type_Speaker_stop_mp3(mp_obj_t self_in) {
     pbio_sound_mp3_stop();
@@ -408,8 +442,6 @@ static mp_obj_t pb_type_Speaker_mp3_stats(size_t n_args, const mp_obj_t *pos_arg
     pbio_sound_mp3_get_stats(&stats, mp_obj_is_true(reset_in));
 
     mp_obj_t dict = mp_obj_new_dict(16);
-    mp_obj_dict_store(dict, MP_OBJ_NEW_QSTR(MP_QSTR_playing), mp_obj_new_bool(stats.playing));
-    mp_obj_dict_store(dict, MP_OBJ_NEW_QSTR(MP_QSTR_paused), mp_obj_new_bool(stats.paused));
     pb_type_Speaker_stats_store(dict, MP_QSTR_sample_rate, stats.sample_rate);
     pb_type_Speaker_stats_store(dict, MP_QSTR_channels, stats.channels);
     pb_type_Speaker_stats_store(dict, MP_QSTR_bitrate_kbps, stats.bitrate_kbps);
@@ -442,6 +474,8 @@ static const mp_rom_map_elem_t pb_type_Speaker_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_play_notes), MP_ROM_PTR(&pb_type_Speaker_play_notes_obj) },
     #if PBIO_CONFIG_SOUND_MP3
     { MP_ROM_QSTR(MP_QSTR_play_mp3), MP_ROM_PTR(&pb_type_Speaker_play_mp3_obj) },
+    { MP_ROM_QSTR(MP_QSTR_mp3_state), MP_ROM_PTR(&pb_type_Speaker_mp3_state_obj) },
+    { MP_ROM_QSTR(MP_QSTR_toggle_mp3), MP_ROM_PTR(&pb_type_Speaker_toggle_mp3_obj) },
     { MP_ROM_QSTR(MP_QSTR_pause_mp3), MP_ROM_PTR(&pb_type_Speaker_pause_mp3_obj) },
     { MP_ROM_QSTR(MP_QSTR_resume_mp3), MP_ROM_PTR(&pb_type_Speaker_resume_mp3_obj) },
     { MP_ROM_QSTR(MP_QSTR_stop_mp3), MP_ROM_PTR(&pb_type_Speaker_stop_mp3_obj) },

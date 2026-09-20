@@ -66,6 +66,10 @@ pbio_error_t pbio_sound_mp3_start(void *context, const uint8_t *data, uint32_t s
 
 void pbio_sound_mp3_stop(void);
 
+bool pbio_sound_mp3_is_playing(void);
+
+bool pbio_sound_mp3_is_paused(void);
+
 void pbio_sound_mp3_pause(void);
 
 void pbio_sound_mp3_resume(void);
@@ -77,6 +81,14 @@ void pbio_sound_mp3_get_stats(pbio_sound_mp3_stats_t *stats, bool reset);
 #else // PBIO_CONFIG_SOUND_MP3
 
 static inline void pbio_sound_mp3_stop(void) {
+}
+
+static inline bool pbio_sound_mp3_is_playing(void) {
+    return false;
+}
+
+static inline bool pbio_sound_mp3_is_paused(void) {
+    return false;
 }
 
 static inline bool pbio_sound_mp3_stop_for_program_end(void) {
