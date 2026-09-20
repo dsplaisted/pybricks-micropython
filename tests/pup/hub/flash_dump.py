@@ -62,15 +62,31 @@ total = 0
 highest = None
 first_used_above_fs = None
 
+# One character per sample: # holds data, . is erased. Each line covers 4 MB.
+PER_LINE = 64
+line = ""
+
 for address in range(0, CHIP_SIZE, SAMPLE_STEP):
     data = hub.system.flash_read(address, SAMPLE_SIZE)
     total += 1
-    if not all(b == 0xFF for b in data):
+    if all(b == 0xFF for b in data):
+        line += "."
+    else:
+        line += "#"
         used += 1
         highest = address
         if first_used_above_fs is None and address >= FS_START:
             first_used_above_fs = address
 
+    if len(line) == PER_LINE:
+        start = address + SAMPLE_STEP - PER_LINE * SAMPLE_STEP
+        print("{:5.1f} MB  {}".format(start / MB, line))
+        line = ""
+
+if line:
+    print("        {}".format(line))
+
+print()
 print("{} of {} samples hold data.".format(used, total))
 if highest is not None:
     print("Highest sample with data: {} KB ({:.1f} MB).".format(highest // KB, highest / MB))
