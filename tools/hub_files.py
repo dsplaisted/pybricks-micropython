@@ -44,6 +44,8 @@ class Hub:
     def __init__(self, hub):
         self.hub = hub
         self.replies = asyncio.Queue()
+        # Keeps the request for faster connection parameters alive.
+        self._connection_request = None
 
     async def connect(self):
         # Answers to the read command arrive as events. The handler is
@@ -58,6 +60,27 @@ class Hub:
 
         self.hub._pybricks_service_handler = handler
         await self.hub.connect()
+        self.request_fast_connection()
+
+    def request_fast_connection(self):
+        """Asks Windows for a faster Bluetooth connection.
+
+        Windows relaxes the connection after about ten seconds, which makes
+        every command take four times as long. Asking for parameters meant
+        for throughput keeps it fast. Has no effect elsewhere.
+        """
+        try:
+            from winrt.windows.devices.bluetooth import (
+                BluetoothLEPreferredConnectionParameters as Parameters,
+            )
+
+            device = self.hub._client._backend._requester
+            self._connection_request = device.request_preferred_connection_parameters(
+                Parameters.throughput_optimized
+            )
+        except Exception:
+            # Not Windows, or the connection is over USB.
+            pass
 
     async def disconnect(self):
         await self.hub.disconnect()

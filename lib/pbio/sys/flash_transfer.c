@@ -40,7 +40,7 @@ static struct {
     uint32_t size;
 } request;
 
-static uint8_t payload[PAYLOAD_SIZE + 5];
+static uint8_t payload[PAYLOAD_SIZE + 6];
 
 static pbio_os_process_t pbsys_flash_transfer_process;
 
@@ -87,6 +87,36 @@ pbio_pybricks_error_t pbsys_flash_transfer_request(uint8_t operation, const uint
     return PBIO_PYBRICKS_ERROR_OK;
 }
 
+/**
+ * Sends one answer, waiting if the connection is busy with something else,
+ * such as a status report.
+ */
+static pbio_error_t pbsys_flash_transfer_send(pbio_os_state_t *state, const uint8_t *data, uint32_t size) {
+
+    static pbio_os_state_t sub;
+    static pbio_os_timer_t timer;
+    static uint32_t tries;
+    pbio_error_t err;
+
+    PBIO_OS_ASYNC_BEGIN(state);
+
+    for (tries = 0; tries < 100; tries++) {
+        PBIO_OS_AWAIT(state, &sub, err = pbsys_host_send_event(&sub,
+            PBIO_PYBRICKS_EVENT_FLASH_FILE_DATA, data, size));
+
+        if (err != PBIO_ERROR_BUSY) {
+            return err;
+        }
+
+        // Something else is being sent, so try again shortly.
+        PBIO_OS_AWAIT_MS(state, &timer, 5);
+    }
+
+    return PBIO_ERROR_BUSY;
+
+    PBIO_OS_ASYNC_END(PBIO_SUCCESS);
+}
+
 static pbio_error_t pbsys_flash_transfer_process_thread(pbio_os_state_t *state, void *context) {
 
     static pbio_os_state_t sub;
@@ -119,8 +149,7 @@ static pbio_error_t pbsys_flash_transfer_process_thread(pbio_os_state_t *state, 
                 pbio_set_uint32_le(&payload[2], entry_size);
                 payload_size = 6 + strlen(&((char *)payload)[6]);
 
-                PBIO_OS_AWAIT(state, &sub, err = pbsys_host_send_event(&sub,
-                    PBIO_PYBRICKS_EVENT_FLASH_FILE_DATA, payload, payload_size));
+                PBIO_OS_AWAIT(state, &sub, err = pbsys_flash_transfer_send(&sub, payload, payload_size));
             }
 
             pbio_flash_fs_list_close();
@@ -137,8 +166,7 @@ static pbio_error_t pbsys_flash_transfer_process_thread(pbio_os_state_t *state, 
                 payload[0] = PBSYS_FLASH_TRANSFER_REPLY_DATA;
                 payload[1] = 0;
                 payload_size = 2 + size_read;
-                PBIO_OS_AWAIT(state, &sub, err = pbsys_host_send_event(&sub,
-                    PBIO_PYBRICKS_EVENT_FLASH_FILE_DATA, payload, payload_size));
+                PBIO_OS_AWAIT(state, &sub, err = pbsys_flash_transfer_send(&sub, payload, payload_size));
             }
         }
 
@@ -146,8 +174,7 @@ static pbio_error_t pbsys_flash_transfer_process_thread(pbio_os_state_t *state, 
         payload[0] = err == PBIO_SUCCESS ?
             PBSYS_FLASH_TRANSFER_REPLY_END : PBSYS_FLASH_TRANSFER_REPLY_ERROR;
         payload[1] = 0;
-        PBIO_OS_AWAIT(state, &sub, pbsys_host_send_event(&sub,
-            PBIO_PYBRICKS_EVENT_FLASH_FILE_DATA, payload, 2));
+        PBIO_OS_AWAIT(state, &sub, pbsys_flash_transfer_send(&sub, payload, 2));
 
         request.pending = false;
     }
