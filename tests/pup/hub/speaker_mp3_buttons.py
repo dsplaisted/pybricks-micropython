@@ -5,7 +5,8 @@ Description: Play/pause button for the embedded MP3, with volume control.
 
 The center button plays, pauses and continues the song like a play/pause
 button. Left and right change the volume, repeating when held. The volume
-and the song both keep going after this program ends.
+and the song both keep going after this program ends. The Bluetooth button
+stops the program.
 """
 
 from pybricks.hubs import PrimeHub
@@ -17,6 +18,10 @@ REPEAT = 25         # time between repeats after that
 POLL = 5            # how often to check the buttons
 
 hub = PrimeHub()
+
+# The center button stops the program by default, so using it to pause would
+# end this one instead. The Bluetooth button stops it instead.
+hub.system.set_stop_button(Button.BLUETOOTH)
 
 # The song, and how it plays, are chosen once. They stay chosen after this
 # program ends, which is how the song keeps playing into the next one.
