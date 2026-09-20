@@ -623,6 +623,12 @@ CFLAGS += -I$(PBTOP)/lib/minimp3
 PBIO_SRC_C += $(BUILD)/pb_mp3_data.c
 # Decoding speed matters more than size here.
 $(BUILD)/lib/pbio/src/sound_mp3.o: CFLAGS += -O2
+
+# Reads the file system that other firmwares keep on the external flash.
+CFLAGS += -DPBIO_CONFIG_FLASH_FS=1
+CFLAGS += -I$(TOP)/lib/littlefs
+CFLAGS += -DLFS2_NO_MALLOC -DLFS2_NO_ASSERT -DLFS2_NO_DEBUG -DLFS2_NO_WARN -DLFS2_NO_ERROR
+LITTLEFS_SRC_C = lib/littlefs/lfs2.c lib/littlefs/lfs2_util.c
 endif
 
 OBJ = $(PY_O)
@@ -632,6 +638,7 @@ OBJ += $(addprefix $(BUILD)/, $(PYBRICKS_PYBRICKS_SRC_C:.c=.o))
 
 OBJ += $(addprefix $(BUILD)/, $(LWRB_SRC_C:.c=.o))
 OBJ += $(addprefix $(BUILD)/, $(PBIO_SRC_C:.c=.o))
+OBJ += $(addprefix $(BUILD)/, $(LITTLEFS_SRC_C:.c=.o))
 OBJ += $(addprefix $(BUILD)/, $(LEGO_SPEC_SRC_C:.c=.o))
 OBJ += $(addprefix $(BUILD)/, $(SRC_LIBM:.c=.o))
 

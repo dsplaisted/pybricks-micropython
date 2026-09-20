@@ -8,6 +8,7 @@
 #include <string.h>
 
 #include <pbdrv/block_device.h>
+#include <pbio/flash_fs.h>
 #include <pbdrv/bluetooth.h>
 #include <pbdrv/reset.h>
 #include <pbsys/main.h>
@@ -202,7 +203,56 @@ static mp_obj_t pb_type_System_flash_read(mp_obj_t address_in, mp_obj_t size_in)
 static MP_DEFINE_CONST_FUN_OBJ_2(pb_type_System_flash_read_obj, pb_type_System_flash_read);
 #endif // PBDRV_CONFIG_BLOCK_DEVICE_RAW_ACCESS
 
+#if PBIO_CONFIG_FLASH_FS
+static void pb_type_System_flash_file_callback(const char *name, uint32_t size, bool is_dir, void *context) {
+    mp_obj_t entry[] = {
+        mp_obj_new_str(name, strlen(name)),
+        mp_obj_new_int_from_uint(size),
+        mp_obj_new_bool(is_dir),
+    };
+    mp_obj_list_append(*(mp_obj_t *)context, mp_obj_new_tuple(3, entry));
+}
+
+// Experimental: lists the files that other firmwares keep on the external
+// flash. Read only.
+static mp_obj_t pb_type_System_flash_files(size_t n_args, const mp_obj_t *args) {
+
+    const char *path = n_args > 0 ? mp_obj_str_get_str(args[0]) : "/";
+
+    pb_assert(pbio_flash_fs_mount());
+
+    mp_obj_t list = mp_obj_new_list(0, NULL);
+    pbio_error_t err = pbio_flash_fs_list(path, pb_type_System_flash_file_callback, &list);
+    pbio_flash_fs_unmount();
+    pb_assert(err);
+
+    return list;
+}
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(pb_type_System_flash_files_obj, 0, 1, pb_type_System_flash_files);
+
+static mp_obj_t pb_type_System_flash_usage(void) {
+
+    pb_assert(pbio_flash_fs_mount());
+
+    uint32_t used, total;
+    pbio_error_t err = pbio_flash_fs_get_usage(&used, &total);
+    pbio_flash_fs_unmount();
+    pb_assert(err);
+
+    mp_obj_t result[] = {
+        mp_obj_new_int_from_uint(used),
+        mp_obj_new_int_from_uint(total),
+    };
+    return mp_obj_new_tuple(2, result);
+}
+static MP_DEFINE_CONST_FUN_OBJ_0(pb_type_System_flash_usage_obj, pb_type_System_flash_usage);
+#endif // PBIO_CONFIG_FLASH_FS
+
 static const mp_rom_map_elem_t common_System_locals_dict_table[] = {
+    #if PBIO_CONFIG_FLASH_FS
+    { MP_ROM_QSTR(MP_QSTR_flash_files), MP_ROM_PTR(&pb_type_System_flash_files_obj) },
+    { MP_ROM_QSTR(MP_QSTR_flash_usage), MP_ROM_PTR(&pb_type_System_flash_usage_obj) },
+    #endif
     #if PBDRV_CONFIG_BLOCK_DEVICE_RAW_ACCESS
     { MP_ROM_QSTR(MP_QSTR_flash_read), MP_ROM_PTR(&pb_type_System_flash_read_obj) },
     #endif
