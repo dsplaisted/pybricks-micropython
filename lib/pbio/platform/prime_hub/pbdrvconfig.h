@@ -46,6 +46,8 @@
 // just needs to be big enough to back up the user program on shutdown.
 #define PBDRV_CONFIG_BLOCK_DEVICE_W25QXX_STM32_START_ADDRESS (512 * 1024)
 #define PBDRV_CONFIG_BLOCK_DEVICE_W25QXX_STM32_SIZE (256 * 1024)
+// Allows reading the rest of the chip, to see what other firmwares store there.
+#define PBDRV_CONFIG_BLOCK_DEVICE_RAW_ACCESS        (1)
 
 #define PBDRV_CONFIG_BUTTON                         (1)
 #define PBDRV_CONFIG_BUTTON_RESISTOR_LADDER         (1)

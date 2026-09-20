@@ -7,6 +7,7 @@
 
 #include <string.h>
 
+#include <pbdrv/block_device.h>
 #include <pbdrv/bluetooth.h>
 #include <pbdrv/reset.h>
 #include <pbsys/main.h>
@@ -178,7 +179,33 @@ static MP_DEFINE_CONST_FUN_OBJ_0(pb_type_System_umm_info_obj, pb_type_System_umm
 #endif // PYBRICKS_PY_COMMON_SYSTEM_UMM_INFO
 
 // dir(pybricks.common.System)
+#if PBDRV_CONFIG_BLOCK_DEVICE_RAW_ACCESS
+// Experimental: reads the external flash, including the regions used by
+// other firmwares, to see what is stored there. Read only.
+static mp_obj_t pb_type_System_flash_read(mp_obj_t address_in, mp_obj_t size_in) {
+
+    uint32_t address = mp_obj_get_int(address_in);
+    uint32_t size = mp_obj_get_int(size_in);
+
+    vstr_t vstr;
+    vstr_init_len(&vstr, size);
+
+    pbio_error_t err;
+    pbio_os_state_t state = 0;
+    while ((err = pbdrv_block_device_read_raw(&state, address, (uint8_t *)vstr.buf, size)) == PBIO_ERROR_AGAIN) {
+        pbio_os_run_processes_and_wait_for_event();
+    }
+    pb_assert(err);
+
+    return mp_obj_new_bytes_from_vstr(&vstr);
+}
+static MP_DEFINE_CONST_FUN_OBJ_2(pb_type_System_flash_read_obj, pb_type_System_flash_read);
+#endif // PBDRV_CONFIG_BLOCK_DEVICE_RAW_ACCESS
+
 static const mp_rom_map_elem_t common_System_locals_dict_table[] = {
+    #if PBDRV_CONFIG_BLOCK_DEVICE_RAW_ACCESS
+    { MP_ROM_QSTR(MP_QSTR_flash_read), MP_ROM_PTR(&pb_type_System_flash_read_obj) },
+    #endif
     { MP_ROM_QSTR(MP_QSTR_name), MP_ROM_PTR(&pb_type_System_name_obj) },
     { MP_ROM_QSTR(MP_QSTR_info), MP_ROM_PTR(&pb_type_System_info_obj) },
     #if PBDRV_CONFIG_RESET

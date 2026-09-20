@@ -285,6 +285,7 @@ enum {
     FLASH_SIZE_ERASE = 4 * 1024, // Limited by W25QXX operation
     FLASH_SIZE_READ = UINT16_MAX, // Limited by STM32 DMA transfer size.
     FLASH_SIZE_WRITE = 256, // Limited by W25QXX operation
+    FLASH_SIZE_TOTAL = W25Qxx(4, 32) * 1024 * 1024, // Whole chip
 };
 
 /**
@@ -371,7 +372,38 @@ static spi_command_t cmd_data_read = {
     .operation = SPI_RECV,
 };
 
+static pbio_error_t pbdrv_block_device_read_at(pbio_os_state_t *state, uint32_t address, uint8_t *buffer, uint32_t size);
+
 static pbio_error_t pbdrv_block_device_read(pbio_os_state_t *state, uint32_t offset, uint8_t *buffer, uint32_t size) {
+    if (size == 0 || offset + size > PBDRV_CONFIG_BLOCK_DEVICE_W25QXX_STM32_SIZE) {
+        return PBIO_ERROR_INVALID_ARG;
+    }
+    return pbdrv_block_device_read_at(state, PBDRV_CONFIG_BLOCK_DEVICE_W25QXX_STM32_START_ADDRESS + offset, buffer, size);
+}
+
+#if PBDRV_CONFIG_BLOCK_DEVICE_RAW_ACCESS
+/**
+ * Reads data from anywhere on the chip, including the regions used by other
+ * firmwares. For inspecting what is stored there.
+ *
+ * Must not be used while the system reads or writes its own storage.
+ *
+ * @param [in]  state   Protothread state.
+ * @param [in]  address Address on the chip.
+ * @param [out] buffer  Buffer to receive the data.
+ * @param [in]  size    Number of bytes to read.
+ * @return              ::PBIO_ERROR_INVALID_ARG if the range is not on the
+ *                      chip, otherwise the result of the read.
+ */
+pbio_error_t pbdrv_block_device_read_raw(pbio_os_state_t *state, uint32_t address, uint8_t *buffer, uint32_t size) {
+    if (size == 0 || address + size > FLASH_SIZE_TOTAL) {
+        return PBIO_ERROR_INVALID_ARG;
+    }
+    return pbdrv_block_device_read_at(state, address, buffer, size);
+}
+#endif // PBDRV_CONFIG_BLOCK_DEVICE_RAW_ACCESS
+
+static pbio_error_t pbdrv_block_device_read_at(pbio_os_state_t *state, uint32_t address, uint8_t *buffer, uint32_t size) {
 
     static pbio_os_state_t sub;
     static uint32_t size_done;
@@ -380,17 +412,12 @@ static pbio_error_t pbdrv_block_device_read(pbio_os_state_t *state, uint32_t off
 
     PBIO_OS_ASYNC_BEGIN(state);
 
-    // Exit on invalid size.
-    if (size == 0 || offset + size > PBDRV_CONFIG_BLOCK_DEVICE_W25QXX_STM32_SIZE) {
-        return PBIO_ERROR_INVALID_ARG;
-    }
-
     // Split up reads to maximum chunk size.
     for (size_done = 0; size_done < size; size_done += size_now) {
         size_now = pbio_int_math_min(size - size_done, FLASH_SIZE_READ);
 
         // Set address for this read request and send it.
-        set_address_be(&cmd_request_read.buffer[1], PBDRV_CONFIG_BLOCK_DEVICE_W25QXX_STM32_START_ADDRESS + offset + size_done);
+        set_address_be(&cmd_request_read.buffer[1], address + size_done);
         PBIO_OS_AWAIT(state, &sub, err = spi_command_thread(&sub, &cmd_request_read));
         if (err != PBIO_SUCCESS) {
             return err;
