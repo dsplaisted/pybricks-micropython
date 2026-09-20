@@ -385,6 +385,32 @@ static mp_obj_t pb_type_Speaker_play_mp3(size_t n_args, const mp_obj_t *pos_args
 }
 static MP_DEFINE_CONST_FUN_OBJ_KW(pb_type_Speaker_play_mp3_obj, 1, pb_type_Speaker_play_mp3);
 
+// Experimental: plays an MP3 file from the external flash.
+static mp_obj_t pb_type_Speaker_play_mp3_file(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
+    PB_PARSE_ARGS_METHOD(n_args, pos_args, kw_args,
+        pb_type_Speaker_obj_t, self,
+        PB_ARG_REQUIRED(path),
+        PB_ARG_DEFAULT_FALSE(loop),
+        PB_ARG_DEFAULT_FALSE(persist));
+    (void)self;
+
+    pbio_sound_mp3_stop();
+
+    bool persist = mp_obj_is_true(persist_in);
+    if (persist) {
+        MP_STATE_VM(pb_mp3_context) = NULL;
+    } else {
+        MP_STATE_VM(pb_mp3_context) = m_malloc(pbio_sound_mp3_get_context_size());
+    }
+
+    void *context = persist ? pbsys_storage_get_sound_memory() : MP_STATE_VM(pb_mp3_context);
+
+    pb_assert(pbio_sound_mp3_start_file(context, mp_obj_str_get_str(path_in),
+        mp_obj_is_true(loop_in), persist));
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_KW(pb_type_Speaker_play_mp3_file_obj, 1, pb_type_Speaker_play_mp3_file);
+
 static mp_obj_t pb_type_Speaker_pause_mp3(mp_obj_t self_in) {
     pbio_sound_mp3_pause();
     return mp_const_none;
@@ -515,6 +541,7 @@ static const mp_rom_map_elem_t pb_type_Speaker_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_play_notes), MP_ROM_PTR(&pb_type_Speaker_play_notes_obj) },
     #if PBIO_CONFIG_SOUND_MP3
     { MP_ROM_QSTR(MP_QSTR_play_mp3), MP_ROM_PTR(&pb_type_Speaker_play_mp3_obj) },
+    { MP_ROM_QSTR(MP_QSTR_play_mp3_file), MP_ROM_PTR(&pb_type_Speaker_play_mp3_file_obj) },
     { MP_ROM_QSTR(MP_QSTR_play_pause_mp3), MP_ROM_PTR(&pb_type_Speaker_play_pause_mp3_obj) },
     { MP_ROM_QSTR(MP_QSTR_mp3_count), MP_ROM_PTR(&pb_type_Speaker_mp3_count_obj) },
     { MP_ROM_QSTR(MP_QSTR_store_mp3), MP_ROM_PTR(&pb_type_Speaker_store_mp3_obj) },

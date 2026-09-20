@@ -64,6 +64,8 @@ size_t pbio_sound_mp3_get_context_size(void);
 
 pbio_error_t pbio_sound_mp3_start(void *context, const uint8_t *data, uint32_t size, bool loop, bool persist);
 
+pbio_error_t pbio_sound_mp3_start_file(void *context, const char *path, bool loop, bool persist);
+
 void pbio_sound_mp3_stop(void);
 
 bool pbio_sound_mp3_is_playing(void);

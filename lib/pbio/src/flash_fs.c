@@ -46,7 +46,12 @@ static uint8_t lookahead_buffer[FS_LOOKAHEAD_SIZE];
 static uint8_t file_buffer[FS_CACHE_SIZE];
 
 static lfs2_t lfs;
-static bool mounted;
+static uint32_t mount_count;
+
+// One file can be kept open for reading a song while it plays.
+static struct lfs2_file_config stream_config = { .buffer = file_buffer };
+static lfs2_file_t stream_file;
+static bool stream_open;
 
 /**
  * Reads from the chip, waiting for the transfer to complete.
@@ -127,7 +132,8 @@ static const struct lfs2_config config = {
  */
 pbio_error_t pbio_flash_fs_mount(void) {
 
-    if (mounted) {
+    if (mount_count > 0) {
+        mount_count++;
         return PBIO_SUCCESS;
     }
 
@@ -135,7 +141,7 @@ pbio_error_t pbio_flash_fs_mount(void) {
         return PBIO_ERROR_FAILED;
     }
 
-    mounted = true;
+    mount_count = 1;
     return PBIO_SUCCESS;
 }
 
@@ -143,9 +149,13 @@ pbio_error_t pbio_flash_fs_mount(void) {
  * Unmounts the file system.
  */
 void pbio_flash_fs_unmount(void) {
-    if (mounted) {
+    if (mount_count > 1) {
+        mount_count--;
+        return;
+    }
+    if (mount_count == 1) {
         lfs2_unmount(&lfs);
-        mounted = false;
+        mount_count = 0;
     }
 }
 
@@ -161,7 +171,7 @@ void pbio_flash_fs_unmount(void) {
  */
 pbio_error_t pbio_flash_fs_list(const char *path, pbio_flash_fs_list_callback_t callback, void *context) {
 
-    if (!mounted) {
+    if (mount_count == 0) {
         return PBIO_ERROR_INVALID_OP;
     }
 
@@ -194,7 +204,7 @@ pbio_error_t pbio_flash_fs_list(const char *path, pbio_flash_fs_list_callback_t 
  */
 pbio_error_t pbio_flash_fs_get_usage(uint32_t *used_bytes, uint32_t *total_bytes) {
 
-    if (!mounted) {
+    if (mount_count == 0) {
         return PBIO_ERROR_INVALID_OP;
     }
 
@@ -206,6 +216,88 @@ pbio_error_t pbio_flash_fs_get_usage(uint32_t *used_bytes, uint32_t *total_bytes
     *used_bytes = (uint32_t)used_blocks * FS_BLOCK_SIZE;
     *total_bytes = (uint32_t)FS_BLOCK_COUNT * FS_BLOCK_SIZE;
     return PBIO_SUCCESS;
+}
+
+/**
+ * Opens a file to read it a piece at a time, such as while playing a song.
+ *
+ * Only one file can be open this way, and the file system stays mounted
+ * until it is closed.
+ *
+ * @param [in]  path    File to open.
+ * @param [out] size    Size of the file in bytes.
+ * @return              ::PBIO_ERROR_FAILED if it can't be opened, otherwise
+ *                      ::PBIO_SUCCESS.
+ */
+pbio_error_t pbio_flash_fs_stream_open(const char *path, uint32_t *size) {
+
+    pbio_flash_fs_stream_close();
+
+    pbio_error_t err = pbio_flash_fs_mount();
+    if (err != PBIO_SUCCESS) {
+        return err;
+    }
+
+    if (lfs2_file_opencfg(&lfs, &stream_file, path, LFS2_O_RDONLY, &stream_config) != LFS2_ERR_OK) {
+        pbio_flash_fs_unmount();
+        return PBIO_ERROR_FAILED;
+    }
+
+    stream_open = true;
+    *size = lfs2_file_size(&lfs, &stream_file);
+    return PBIO_SUCCESS;
+}
+
+/**
+ * Reads the next piece of the open file.
+ *
+ * @param [out] buffer      Buffer to receive the data.
+ * @param [in]  size        Number of bytes to read.
+ * @param [out] size_read   Number of bytes actually read, which is less than
+ *                          @p size at the end of the file.
+ * @return                  ::PBIO_ERROR_INVALID_OP if no file is open,
+ *                          ::PBIO_ERROR_FAILED on a read error, otherwise
+ *                          ::PBIO_SUCCESS.
+ */
+pbio_error_t pbio_flash_fs_stream_read(uint8_t *buffer, uint32_t size, uint32_t *size_read) {
+
+    if (!stream_open) {
+        return PBIO_ERROR_INVALID_OP;
+    }
+
+    lfs2_ssize_t result = lfs2_file_read(&lfs, &stream_file, buffer, size);
+    if (result < 0) {
+        return PBIO_ERROR_FAILED;
+    }
+
+    *size_read = result;
+    return PBIO_SUCCESS;
+}
+
+/**
+ * Starts reading the open file from the beginning again.
+ *
+ * @return  ::PBIO_ERROR_INVALID_OP if no file is open, ::PBIO_ERROR_FAILED
+ *          if it can't be rewound, otherwise ::PBIO_SUCCESS.
+ */
+pbio_error_t pbio_flash_fs_stream_rewind(void) {
+
+    if (!stream_open) {
+        return PBIO_ERROR_INVALID_OP;
+    }
+
+    return lfs2_file_seek(&lfs, &stream_file, 0, LFS2_SEEK_SET) < 0 ? PBIO_ERROR_FAILED : PBIO_SUCCESS;
+}
+
+/**
+ * Closes the file that was opened for reading a piece at a time.
+ */
+void pbio_flash_fs_stream_close(void) {
+    if (stream_open) {
+        lfs2_file_close(&lfs, &stream_file);
+        stream_open = false;
+        pbio_flash_fs_unmount();
+    }
 }
 
 /**
@@ -223,7 +315,7 @@ pbio_error_t pbio_flash_fs_get_usage(uint32_t *used_bytes, uint32_t *total_bytes
  */
 pbio_error_t pbio_flash_fs_read_file(const char *path, uint32_t offset, uint8_t *buffer, uint32_t size, uint32_t *size_read) {
 
-    if (!mounted) {
+    if (mount_count == 0) {
         return PBIO_ERROR_INVALID_OP;
     }
 
@@ -265,7 +357,7 @@ pbio_error_t pbio_flash_fs_read_file(const char *path, uint32_t offset, uint8_t 
  */
 pbio_error_t pbio_flash_fs_write_file(const char *path, const uint8_t *data, uint32_t size) {
 
-    if (!mounted) {
+    if (mount_count == 0) {
         return PBIO_ERROR_INVALID_OP;
     }
 
@@ -298,7 +390,7 @@ pbio_error_t pbio_flash_fs_write_file(const char *path, const uint8_t *data, uin
  */
 pbio_error_t pbio_flash_fs_remove(const char *path) {
 
-    if (!mounted) {
+    if (mount_count == 0) {
         return PBIO_ERROR_INVALID_OP;
     }
 

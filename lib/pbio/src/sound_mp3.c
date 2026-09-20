@@ -17,6 +17,7 @@
 #include <pbdrv/clock.h>
 #include <pbdrv/sound.h>
 #include <pbio/os.h>
+#include <pbio/flash_fs.h>
 #include <pbio/sound_mp3.h>
 #include <pbio/sound_volume.h>
 
@@ -38,6 +39,18 @@ static void *pbio_sound_mp3_scratch;
 #include <minimp3.h>
 #pragma GCC diagnostic pop
 
+// Bytes of song held in memory when playing from a file. Must be well over
+// the largest MP3 frame, which is about 1.4 KB.
+#define WINDOW_SIZE (8192)
+
+// How much is read per step. Small enough that a read step costs less than
+// a decode step, which keeps the longest step short.
+#define WINDOW_READ_SIZE (1024)
+
+// Decoding is only attempted with at least this much data, unless the end of
+// the song has been reached.
+#define WINDOW_MIN_DECODE (2048)
+
 // Number of samples in each half of the double buffer. This is how much
 // audio is buffered ahead, so it sets how long the background process may
 // be delayed before the audio glitches. At 22050 Hz, this is 93 ms.
@@ -52,14 +65,24 @@ typedef struct {
     mp3dec_scratch_t scratch;
     mp3d_sample_t pcm[MINIMP3_MAX_SAMPLES_PER_FRAME];
     uint16_t buffer[2 * HALF_SAMPLES];
+    // Only used when playing from a file.
+    uint8_t window[WINDOW_SIZE];
 } pbio_sound_mp3_context_t;
 
 static struct {
     pbio_sound_mp3_context_t *ctx;
+    /** Song data, when playing from memory. */
     const uint8_t *data;
     uint32_t size;
     /** Position of the next frame in the data. */
     uint32_t pos;
+    /** Whether the song is read from a file instead of memory. */
+    bool from_file;
+    /** Bytes of the file held in the window, and how much is used. */
+    uint32_t window_size;
+    uint32_t window_pos;
+    /** Whether the end of the file has been read into the window. */
+    bool end_of_file;
     bool loop;
     /** Whether playback continues when a user program ends. */
     bool persist;
@@ -96,35 +119,120 @@ size_t pbio_sound_mp3_get_context_size(void) {
 }
 
 /**
+ * Gets the song data at the current position.
+ *
+ * @param [out] available   Number of bytes available from there.
+ * @return                  The data.
+ */
+static const uint8_t *pbio_sound_mp3_source(uint32_t *available) {
+    if (player.from_file) {
+        *available = player.window_size - player.window_pos;
+        return player.ctx->window + player.window_pos;
+    }
+    *available = player.size - player.pos;
+    return player.data + player.pos;
+}
+
+/**
+ * Advances past data that has been decoded.
+ */
+static void pbio_sound_mp3_consume(uint32_t size) {
+    if (player.from_file) {
+        player.window_pos += size;
+    } else {
+        player.pos += size;
+    }
+}
+
+/**
+ * Tests whether more of the file should be read before decoding again.
+ */
+static bool pbio_sound_mp3_needs_data(void) {
+    uint32_t available;
+    pbio_sound_mp3_source(&available);
+    return player.from_file && !player.end_of_file && available < WINDOW_MIN_DECODE;
+}
+
+/**
+ * Reads the next piece of the file into the window.
+ */
+static void pbio_sound_mp3_read_data(void) {
+
+    // Move what is left to the start to make room.
+    uint32_t remaining = player.window_size - player.window_pos;
+    if (player.window_pos > 0) {
+        memmove(player.ctx->window, player.ctx->window + player.window_pos, remaining);
+        player.window_pos = 0;
+        player.window_size = remaining;
+    }
+
+    uint32_t space = WINDOW_SIZE - player.window_size;
+    uint32_t size = space < WINDOW_READ_SIZE ? space : WINDOW_READ_SIZE;
+
+    uint32_t size_read = 0;
+    if (pbio_flash_fs_stream_read(player.ctx->window + player.window_size, size, &size_read) != PBIO_SUCCESS) {
+        player.end_of_file = true;
+        return;
+    }
+
+    player.window_size += size_read;
+    if (size_read < size) {
+        player.end_of_file = true;
+    }
+}
+
+/**
+ * Starts the file again from the beginning, for playing in a loop.
+ */
+static bool pbio_sound_mp3_rewind(void) {
+    if (pbio_flash_fs_stream_rewind() != PBIO_SUCCESS) {
+        return false;
+    }
+    player.window_size = 0;
+    player.window_pos = 0;
+    player.end_of_file = false;
+    return true;
+}
+
+/**
  * Decodes the next frame into the pcm buffer.
  *
  * @return  @c false if there is no more audio, @c true otherwise.
  */
 static bool pbio_sound_mp3_decode_frame(void) {
 
-    if (player.pos >= player.size) {
+    uint32_t available;
+    const uint8_t *data = pbio_sound_mp3_source(&available);
+
+    if (available == 0) {
         if (!player.loop) {
             return false;
         }
+        if (player.from_file) {
+            return pbio_sound_mp3_rewind();
+        }
         player.pos = 0;
+        data = pbio_sound_mp3_source(&available);
     }
 
     mp3dec_frame_info_t info;
     uint32_t start_us = pbdrv_clock_get_us();
-    int samples = mp3dec_decode_frame(&player.ctx->decoder, player.data + player.pos,
-        player.size - player.pos, player.ctx->pcm, &info);
+    int samples = mp3dec_decode_frame(&player.ctx->decoder, data, available, player.ctx->pcm, &info);
     uint32_t decode_us = pbdrv_clock_get_us() - start_us;
 
     // No frames in the remaining data.
     if (info.frame_bytes == 0) {
-        bool was_at_start = player.pos == 0;
-        player.pos = player.size;
+        bool was_at_start = player.from_file ? false : player.pos == 0;
+        pbio_sound_mp3_consume(available);
         // Try again from the start if looping, unless there are no frames at all.
-        return player.loop && !was_at_start;
+        if (!player.loop || was_at_start) {
+            return false;
+        }
+        return player.from_file ? pbio_sound_mp3_rewind() : (player.pos = 0, true);
     }
 
     // Skip the frame and any data before it.
-    player.pos += info.frame_bytes;
+    pbio_sound_mp3_consume(info.frame_bytes);
 
     // Skipped data such as tags, so no samples to add.
     if (samples == 0) {
@@ -182,6 +290,13 @@ static void pbio_sound_mp3_fill_silence(void) {
     }
 }
 
+static void pbio_sound_mp3_close_file(void) {
+    if (player.from_file) {
+        pbio_flash_fs_stream_close();
+        player.from_file = false;
+    }
+}
+
 static void pbio_sound_mp3_stop_streaming(void) {
     if (player.streaming) {
         pbdrv_sound_stop();
@@ -206,6 +321,7 @@ static bool pbio_sound_mp3_step(void) {
     // All audio has been played.
     if (player.streaming && player.end_of_data && done >= player.end_halves) {
         pbio_sound_mp3_stop_streaming();
+        pbio_sound_mp3_close_file();
         return false;
     }
 
@@ -228,6 +344,12 @@ static bool pbio_sound_mp3_step(void) {
 
     // Need more samples to complete this half.
     if (player.fill_pos < HALF_SAMPLES) {
+        // Reading from the file is done in a step of its own, so that it is
+        // never added to the time taken by decoding a frame.
+        if (!player.end_of_data && pbio_sound_mp3_needs_data()) {
+            pbio_sound_mp3_read_data();
+            return true;
+        }
         if (!player.end_of_data && pbio_sound_mp3_decode_frame()) {
             // Copy the new samples on the next step.
             return true;
@@ -302,14 +424,9 @@ static void pbio_sound_mp3_start_streaming(void) {
  * @return                          ::PBIO_ERROR_INVALID_ARG if there is no
  *                                  audio in @p data, otherwise ::PBIO_SUCCESS.
  */
-pbio_error_t pbio_sound_mp3_start(void *context, const uint8_t *data, uint32_t size, bool loop, bool persist) {
+static pbio_error_t pbio_sound_mp3_start_common(void *context, bool loop, bool persist) {
 
-    pbio_sound_mp3_stop();
-
-    memset(&player, 0, sizeof(player));
     player.ctx = context;
-    player.data = data;
-    player.size = size;
     player.loop = loop;
     player.persist = persist;
     player.stats.decode_us_min = UINT32_MAX;
@@ -335,10 +452,60 @@ pbio_error_t pbio_sound_mp3_start(void *context, const uint8_t *data, uint32_t s
 }
 
 /**
+ * Starts playing MP3 data from memory.
+ */
+pbio_error_t pbio_sound_mp3_start(void *context, const uint8_t *data, uint32_t size, bool loop, bool persist) {
+
+    pbio_sound_mp3_stop();
+
+    memset(&player, 0, sizeof(player));
+    player.data = data;
+    player.size = size;
+
+    return pbio_sound_mp3_start_common(context, loop, persist);
+}
+
+/**
+ * Starts playing an MP3 file on the external flash.
+ *
+ * The file stays open while it plays, so nothing else may write to the
+ * flash until playback stops.
+ *
+ * @param [in]  context     Memory of ::pbio_sound_mp3_get_context_size bytes.
+ * @param [in]  path        The file to play.
+ * @param [in]  loop        Whether to repeat from the start at the end.
+ * @param [in]  persist     Whether to keep playing when the program ends.
+ * @return                  ::PBIO_ERROR_FAILED if the file can't be opened,
+ *                          ::PBIO_ERROR_INVALID_ARG if it has no audio,
+ *                          otherwise ::PBIO_SUCCESS.
+ */
+pbio_error_t pbio_sound_mp3_start_file(void *context, const char *path, bool loop, bool persist) {
+
+    pbio_sound_mp3_stop();
+
+    memset(&player, 0, sizeof(player));
+    player.from_file = true;
+
+    uint32_t size;
+    pbio_error_t err = pbio_flash_fs_stream_open(path, &size);
+    if (err != PBIO_SUCCESS) {
+        return err;
+    }
+    player.size = size;
+
+    err = pbio_sound_mp3_start_common(context, loop, persist);
+    if (err != PBIO_SUCCESS) {
+        pbio_flash_fs_stream_close();
+    }
+    return err;
+}
+
+/**
  * Stops playing. After this, the context memory is no longer used.
  */
 void pbio_sound_mp3_stop(void) {
     pbio_sound_mp3_stop_streaming();
+    pbio_sound_mp3_close_file();
     player.paused = false;
     player.stats.paused = false;
 }
@@ -409,6 +576,7 @@ bool pbio_sound_mp3_stop_for_program_end(void) {
         return true;
     }
     pbio_sound_mp3_stop_streaming();
+    pbio_sound_mp3_close_file();
     return false;
 }
 
