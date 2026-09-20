@@ -145,30 +145,66 @@ void pbio_sound_mp3_select(const uint8_t *data, uint32_t size, uint32_t index) {
 }
 
 /**
+ * Works out where a song lives.
+ *
+ * A name on its own is a song in ::PBIO_SOUND_MP3_DIR. Anything with a slash
+ * in it is a path of its own, so that songs elsewhere can still be played.
+ *
+ * @param [in]  path    The name or path of the song.
+ * @param [out] buffer  Where to write the full path.
+ * @param [in]  size    Size of @p buffer.
+ * @return              ::PBIO_ERROR_INVALID_ARG if the result doesn't fit,
+ *                      otherwise ::PBIO_SUCCESS.
+ */
+pbio_error_t pbio_sound_mp3_resolve_path(const char *path, char *buffer, size_t size) {
+
+    if (path[0] == '\0') {
+        return PBIO_ERROR_INVALID_ARG;
+    }
+
+    if (strchr(path, '/')) {
+        if (strlen(path) >= size) {
+            return PBIO_ERROR_INVALID_ARG;
+        }
+        strcpy(buffer, path);
+        return PBIO_SUCCESS;
+    }
+
+    if (strlen(PBIO_SOUND_MP3_DIR) + 1 + strlen(path) >= size) {
+        return PBIO_ERROR_INVALID_ARG;
+    }
+
+    strcpy(buffer, PBIO_SOUND_MP3_DIR "/");
+    strcat(buffer, path);
+    return PBIO_SUCCESS;
+}
+
+/**
  * Chooses a song from a file on the external flash.
  *
- * @param [in]  path    The file to play.
+ * @param [in]  path    The name of the song, or a path to it.
  * @return              ::PBIO_ERROR_INVALID_ARG if the path is too long,
  *                      the error from reading the file if it cannot be read,
  *                      otherwise ::PBIO_SUCCESS.
  */
 pbio_error_t pbio_sound_mp3_select_file(const char *path) {
 
-    uint32_t length = strlen(path);
-    if (length == 0 || length >= sizeof(selection.path)) {
-        return PBIO_ERROR_INVALID_ARG;
+    char full[PBIO_SOUND_MP3_PATH_SIZE];
+    pbio_error_t err = pbio_sound_mp3_resolve_path(path, full, sizeof(full));
+    if (err != PBIO_SUCCESS) {
+        return err;
     }
 
     // Reading the start of the file says whether it can be played at all,
     // which is friendlier to find out now than when it is due to play.
     uint8_t probe;
     uint32_t size_read;
-    pbio_error_t err = pbio_flash_fs_read_file(path, 0, &probe, sizeof(probe), &size_read);
+    err = pbio_flash_fs_read_file(full, 0, &probe, sizeof(probe), &size_read);
     if (err != PBIO_SUCCESS) {
         return err;
     }
 
-    strcpy(selection.path, path);
+    strcpy(selection.path, full);
     selection.valid = true;
     selection.from_file = true;
     return PBIO_SUCCESS;

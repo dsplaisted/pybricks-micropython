@@ -45,6 +45,11 @@ enum {
     PBIO_FLASH_FILE_CLOSE = 2,
 };
 
+/**
+ * Longest path this deals with, including the terminating null.
+ */
+#define PBIO_FLASH_FS_PATH_SIZE (64)
+
 pbio_error_t pbio_flash_fs_mount(void);
 
 void pbio_flash_fs_unmount(void);

@@ -27,6 +27,15 @@
 #define PBIO_SOUND_MP3_PATH_SIZE (64)
 
 /**
+ * Where songs are kept, so that a song can be named without saying where it
+ * lives, and so that they stay out of the way of the files that other
+ * firmwares keep on the same file system.
+ */
+#define PBIO_SOUND_MP3_DIR "/pybricks/songs"
+
+pbio_error_t pbio_sound_mp3_resolve_path(const char *path, char *buffer, size_t size);
+
+/**
  * Playback and timing statistics.
  */
 typedef struct {

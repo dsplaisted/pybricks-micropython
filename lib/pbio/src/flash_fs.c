@@ -181,8 +181,9 @@ pbio_error_t pbio_flash_fs_list(const char *path, pbio_flash_fs_list_callback_t 
     }
 
     lfs2_dir_t dir;
-    if (lfs2_dir_open(&lfs, &dir, path) != LFS2_ERR_OK) {
-        return PBIO_ERROR_FAILED;
+    int result = lfs2_dir_open(&lfs, &dir, path);
+    if (result != LFS2_ERR_OK) {
+        return result == LFS2_ERR_NOENT ? PBIO_ERROR_NO_DEV : PBIO_ERROR_FAILED;
     }
 
     struct lfs2_info info;
@@ -214,9 +215,10 @@ pbio_error_t pbio_flash_fs_list_open(const char *path) {
         return err;
     }
 
-    if (lfs2_dir_open(&lfs, &list_dir, path) != LFS2_ERR_OK) {
+    int result = lfs2_dir_open(&lfs, &list_dir, path);
+    if (result != LFS2_ERR_OK) {
         pbio_flash_fs_unmount();
-        return PBIO_ERROR_FAILED;
+        return result == LFS2_ERR_NOENT ? PBIO_ERROR_NO_DEV : PBIO_ERROR_FAILED;
     }
 
     list_open = true;
@@ -310,12 +312,55 @@ pbio_error_t pbio_flash_fs_get_usage(uint32_t *used_bytes, uint32_t *total_bytes
  * @return              ::PBIO_ERROR_FAILED if it can't be opened, otherwise
  *                      ::PBIO_SUCCESS.
  */
+/**
+ * Creates the directories that a path leads through, so that a file can be
+ * written into a folder that is not there yet. The file system must be
+ * mounted.
+ *
+ * @param [in]  path    The path of the file.
+ * @return              ::PBIO_ERROR_INVALID_ARG if the path is too long,
+ *                      ::PBIO_ERROR_FAILED if a directory can't be made,
+ *                      otherwise ::PBIO_SUCCESS.
+ */
+static pbio_error_t pbio_flash_fs_make_parents(const char *path) {
+
+    char dir[PBIO_FLASH_FS_PATH_SIZE];
+
+    if (strlen(path) >= sizeof(dir)) {
+        return PBIO_ERROR_INVALID_ARG;
+    }
+
+    for (uint32_t i = 0; path[i]; i++) {
+
+        // The leading slash is the root, which is always there.
+        if (path[i] != '/' || i == 0) {
+            continue;
+        }
+
+        memcpy(dir, path, i);
+        dir[i] = '\0';
+
+        int result = lfs2_mkdir(&lfs, dir);
+        if (result != LFS2_ERR_OK && result != LFS2_ERR_EXIST) {
+            return PBIO_ERROR_FAILED;
+        }
+    }
+
+    return PBIO_SUCCESS;
+}
+
 pbio_error_t pbio_flash_fs_write_open(const char *path) {
 
     pbio_flash_fs_stream_close();
 
     pbio_error_t err = pbio_flash_fs_mount();
     if (err != PBIO_SUCCESS) {
+        return err;
+    }
+
+    err = pbio_flash_fs_make_parents(path);
+    if (err != PBIO_SUCCESS) {
+        pbio_flash_fs_unmount();
         return err;
     }
 
@@ -489,6 +534,11 @@ pbio_error_t pbio_flash_fs_write_file(const char *path, const uint8_t *data, uin
 
     if (mount_count == 0) {
         return PBIO_ERROR_INVALID_OP;
+    }
+
+    pbio_error_t parents = pbio_flash_fs_make_parents(path);
+    if (parents != PBIO_SUCCESS) {
+        return parents;
     }
 
     struct lfs2_file_config file_config = { .buffer = file_buffer };

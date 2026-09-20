@@ -19,7 +19,7 @@ KB = 1024
 MB = 1024 * KB
 
 TEST_PATH = "/pybricks_test.bin"
-SONG_PATH = "/pybricks_song.mp3"
+SONG_PATH = "/pybricks/songs/pybricks_song.mp3"
 
 # Set to True to also store a song. This writes a few hundred kilobytes.
 STORE_SONG = False
@@ -67,7 +67,7 @@ if STORE_SONG:
     elapsed = watch.time()
 
     for name, file_size, is_dir in hub.system.flash_files("/"):
-        if "/" + name == SONG_PATH:
+        if SONG_PATH.endswith("/" + name):
             size = file_size
 
     if size is None:

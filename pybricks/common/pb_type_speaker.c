@@ -458,14 +458,19 @@ static mp_obj_t pb_type_Speaker_mp3_songs(size_t n_args, const mp_obj_t *args) {
     }
 
     #if PBIO_CONFIG_FLASH_FS
-    const char *dir = n_args > 1 ? mp_obj_str_get_str(args[1]) : "/";
+    const char *dir = n_args > 1 ? mp_obj_str_get_str(args[1]) : PBIO_SOUND_MP3_DIR;
 
     pb_assert(pbio_flash_fs_mount());
 
     pb_type_Speaker_mp3_songs_t songs = { .list = list, .dir = dir };
     pbio_error_t err = pbio_flash_fs_list(dir, pb_type_Speaker_mp3_songs_callback, &songs);
     pbio_flash_fs_unmount();
-    pb_assert(err);
+
+    // A hub that has never had a song put on it has no folder to list, which
+    // means no songs rather than something being wrong.
+    if (err != PBIO_ERROR_NO_DEV) {
+        pb_assert(err);
+    }
     #endif // PBIO_CONFIG_FLASH_FS
 
     return list;
@@ -526,10 +531,13 @@ static mp_obj_t pb_type_Speaker_store_mp3(mp_obj_t self_in, mp_obj_t song_in, mp
         mp_raise_ValueError(MP_ERROR_TEXT("no such song"));
     }
 
+    char path[PBIO_SOUND_MP3_PATH_SIZE];
+    pb_assert(pbio_sound_mp3_resolve_path(mp_obj_str_get_str(path_in), path, sizeof(path)));
+
     pbio_sound_mp3_stop();
 
     pb_assert(pbio_flash_fs_mount());
-    pbio_error_t err = pbio_flash_fs_write_file(mp_obj_str_get_str(path_in),
+    pbio_error_t err = pbio_flash_fs_write_file(path,
         pb_mp3_song_data[index], pb_mp3_song_size[index]);
     pbio_flash_fs_unmount();
     pb_assert(err);

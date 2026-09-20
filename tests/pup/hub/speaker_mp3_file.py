@@ -13,7 +13,8 @@ from pybricks.hubs import PrimeHub
 from pybricks.tools import StopWatch, wait
 
 VOLUME = 25
-SONG_PATH = "/pybricks_song.mp3"
+# A name on its own means a song in the hub's songs folder.
+SONG_NAME = "pybricks_song.mp3"
 
 hub = PrimeHub()
 watch = StopWatch()
@@ -37,18 +38,18 @@ def report(phase):
     print("  underruns:", s["underruns"])
 
 
-# Store the song if it is not on the flash yet.
-names = ["/" + name for name, size, is_dir in hub.system.flash_files("/")]
-if SONG_PATH not in names:
-    print("Storing {}...".format(SONG_PATH))
+# Store the song if it is not on the flash yet. The folder is made as
+# needed, so this works on a hub that has never had a song on it.
+if not [song for song in hub.speaker.mp3_songs() if str(song).endswith(SONG_NAME)]:
+    print("Storing {}...".format(SONG_NAME))
     watch.reset()
-    hub.speaker.store_mp3(0, SONG_PATH)
+    hub.speaker.store_mp3(0, SONG_NAME)
     print("Stored in {} ms.".format(watch.time()))
 
 hub.speaker.volume(VOLUME)
 
-print("Playing {} from the flash...".format(SONG_PATH))
-hub.speaker.select_mp3(SONG_PATH)
+print("Playing {} from the flash...".format(SONG_NAME))
+hub.speaker.select_mp3(SONG_NAME)
 hub.speaker.mp3_repeat(True)
 hub.speaker.play_mp3()
 
