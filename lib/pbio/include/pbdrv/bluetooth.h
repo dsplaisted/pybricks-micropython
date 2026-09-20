@@ -26,6 +26,10 @@
 #ifndef PBDRV_BLUETOOTH_MAX_CHAR_SIZE
 #define PBDRV_BLUETOOTH_MAX_CHAR_SIZE 20
 #endif
+
+// What every connection accepts without negotiating anything, which is all
+// that events sending little data need.
+#define PBDRV_BLUETOOTH_MIN_CHAR_SIZE 20
 #define PBDRV_BLUETOOTH_MAX_ADV_SIZE 31
 
 /** Data structure that holds context needed for sending BLE notifications. */
