@@ -448,7 +448,7 @@ static void pb_type_Speaker_mp3_songs_callback(const char *name, uint32_t size, 
 // Experimental: lists the songs that can be chosen with select_mp3().
 //
 // The songs built into the firmware come first, as whole numbers, followed by
-// the paths of the MP3 files on the external flash.
+// the paths of the MP3 files on the external flash, in order of name.
 static mp_obj_t pb_type_Speaker_mp3_songs(size_t n_args, const mp_obj_t *args) {
 
     mp_obj_t list = mp_obj_new_list(0, NULL);
@@ -462,7 +462,11 @@ static mp_obj_t pb_type_Speaker_mp3_songs(size_t n_args, const mp_obj_t *args) {
 
     pb_assert(pbio_flash_fs_mount());
 
-    pb_type_Speaker_mp3_songs_t songs = { .list = list, .dir = dir };
+    // Gathered on their own so that they can be put in order, which the file
+    // system does not promise, without disturbing the songs before them.
+    mp_obj_t files = mp_obj_new_list(0, NULL);
+
+    pb_type_Speaker_mp3_songs_t songs = { .list = files, .dir = dir };
     pbio_error_t err = pbio_flash_fs_list(dir, pb_type_Speaker_mp3_songs_callback, &songs);
     pbio_flash_fs_unmount();
 
@@ -470,6 +474,16 @@ static mp_obj_t pb_type_Speaker_mp3_songs(size_t n_args, const mp_obj_t *args) {
     // means no songs rather than something being wrong.
     if (err != PBIO_ERROR_NO_DEV) {
         pb_assert(err);
+    }
+
+    mp_obj_t sort_args[] = { files };
+    mp_obj_list_sort(1, sort_args, (mp_map_t *)&mp_const_empty_map);
+
+    size_t count;
+    mp_obj_t *items;
+    mp_obj_list_get(files, &count, &items);
+    for (size_t i = 0; i < count; i++) {
+        mp_obj_list_append(list, items[i]);
     }
     #endif // PBIO_CONFIG_FLASH_FS
 
