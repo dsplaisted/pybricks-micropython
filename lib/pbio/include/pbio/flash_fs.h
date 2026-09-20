@@ -33,6 +33,18 @@
  */
 typedef void (*pbio_flash_fs_list_callback_t)(const char *name, uint32_t size, bool is_dir, void *context);
 
+/**
+ * Operations of the command that writes a file from the computer.
+ */
+enum {
+    /** Opens the file, with the name as the payload. */
+    PBIO_FLASH_FILE_OPEN = 0,
+    /** Adds the payload to the end of the file. */
+    PBIO_FLASH_FILE_APPEND = 1,
+    /** Closes the file. */
+    PBIO_FLASH_FILE_CLOSE = 2,
+};
+
 pbio_error_t pbio_flash_fs_mount(void);
 
 void pbio_flash_fs_unmount(void);

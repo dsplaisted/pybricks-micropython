@@ -205,6 +205,25 @@ typedef enum {
      * @since Pybricks Profile v1.4.0
      */
     PBIO_PYBRICKS_COMMAND_WRITE_APP_DATA = 7,
+
+    /**
+     * Experimental: writes a file on the external flash of the hub.
+     *
+     * Send one open command, then append commands with the contents, then a
+     * close command. Each command is answered, so the next one is only sent
+     * once the hub has stored the previous one.
+     *
+     * Parameters:
+     * - operation: 0 to open, 1 to append, 2 to close (8-bit unsigned
+     *   integer).
+     * - payload: The file name when opening, the data when appending, and
+     *   nothing when closing.
+     *
+     * Errors:
+     * - ::PBIO_PYBRICKS_ERROR_BUSY if sound is playing from the flash.
+     * - ::PBIO_PYBRICKS_ERROR_VALUE_NOT_ALLOWED if the file can't be written.
+     */
+    PBIO_PYBRICKS_COMMAND_WRITE_FLASH_FILE = 8,
 } pbio_pybricks_command_t;
 /**
  * Application-specific error codes that are used in ATT_ERROR_RSP.

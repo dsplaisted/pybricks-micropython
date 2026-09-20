@@ -3,9 +3,12 @@
 
 #include <assert.h>
 #include <stdint.h>
+#include <string.h>
 
 #include <pbdrv/reset.h>
+#include <pbio/flash_fs.h>
 #include <pbio/protocol.h>
+#include <pbio/sound_mp3.h>
 
 #include <pbsys/command.h>
 #include <pbsys/config.h>
@@ -63,6 +66,43 @@ pbio_pybricks_error_t pbsys_command(const uint8_t *data, uint32_t size) {
         case PBIO_PYBRICKS_COMMAND_WRITE_USER_PROGRAM_META:
             return pbio_pybricks_error_from_pbio_error(pbsys_storage_set_program_size(
                 pbio_get_uint32_le(&data[1])));
+
+        #if PBIO_CONFIG_FLASH_FS
+        case PBIO_PYBRICKS_COMMAND_WRITE_FLASH_FILE: {
+
+            if (size < 2) {
+                return PBIO_PYBRICKS_ERROR_VALUE_NOT_ALLOWED;
+            }
+
+            // The file is read while a song plays from it, so don't write
+            // to the flash at the same time.
+            if (pbio_sound_mp3_is_playing() || pbio_sound_mp3_is_paused()) {
+                return PBIO_PYBRICKS_ERROR_BUSY;
+            }
+
+            switch (data[1]) {
+                case PBIO_FLASH_FILE_OPEN: {
+                    // The name is not null terminated on the wire.
+                    static char path[64];
+                    uint32_t len = size - 2;
+                    if (len == 0 || len >= sizeof(path)) {
+                        return PBIO_PYBRICKS_ERROR_VALUE_NOT_ALLOWED;
+                    }
+                    memcpy(path, &data[2], len);
+                    path[len] = '\0';
+                    return pbio_pybricks_error_from_pbio_error(pbio_flash_fs_write_open(path));
+                }
+                case PBIO_FLASH_FILE_APPEND:
+                    return pbio_pybricks_error_from_pbio_error(
+                        pbio_flash_fs_write_append(&data[2], size - 2));
+                case PBIO_FLASH_FILE_CLOSE:
+                    pbio_flash_fs_stream_close();
+                    return PBIO_PYBRICKS_ERROR_OK;
+                default:
+                    return PBIO_PYBRICKS_ERROR_VALUE_NOT_ALLOWED;
+            }
+        }
+        #endif // PBIO_CONFIG_FLASH_FS
 
         case PBIO_PYBRICKS_COMMAND_WRITE_USER_RAM:
             return pbio_pybricks_error_from_pbio_error(pbsys_storage_set_program_data(
