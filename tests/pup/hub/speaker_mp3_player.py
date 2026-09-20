@@ -102,9 +102,20 @@ def set_volume(value):
 
 print("{} songs. Center plays, left and right choose, hold for volume.".format(len(songs)))
 
-select(0, False)
+# Carry on with the song that is already chosen, since the choice outlives
+# the program that made it. Choosing it again does not disturb it if it is
+# playing.
+selected = hub.speaker.mp3_selected()
+start = 0
+for at, song in enumerate(songs):
+    if song == selected:
+        start = at
 
-playing = False
+select(start, False)
+
+# Music that is already playing keeps playing, so the player has to know
+# about it to move on when the song ends.
+playing = hub.speaker.mp3_playing()
 held = 0
 due = 0
 repeated = False
