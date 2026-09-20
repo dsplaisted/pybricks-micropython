@@ -373,6 +373,7 @@ static spi_command_t cmd_data_read = {
 };
 
 static pbio_error_t pbdrv_block_device_read_at(pbio_os_state_t *state, uint32_t address, uint8_t *buffer, uint32_t size);
+static pbio_error_t flash_erase_or_write(pbio_os_state_t *state, uint32_t address, uint8_t *buffer, uint32_t size);
 
 static pbio_error_t pbdrv_block_device_read(pbio_os_state_t *state, uint32_t offset, uint8_t *buffer, uint32_t size) {
     if (size == 0 || offset + size > PBDRV_CONFIG_BLOCK_DEVICE_W25QXX_STM32_SIZE) {
@@ -400,6 +401,67 @@ pbio_error_t pbdrv_block_device_read_raw(pbio_os_state_t *state, uint32_t addres
         return PBIO_ERROR_INVALID_ARG;
     }
     return pbdrv_block_device_read_at(state, address, buffer, size);
+}
+
+// Writing is only allowed from here on, which keeps the storage of the
+// system and the area used by firmware updates out of reach.
+#define RAW_WRITE_MIN_ADDRESS (1024 * 1024)
+
+/**
+ * Erases one block anywhere on the chip, above the protected area.
+ *
+ * @param [in]  state   Protothread state.
+ * @param [in]  address Address of the block, which must be aligned to it.
+ * @return              ::PBIO_ERROR_INVALID_ARG if the block is not allowed
+ *                      to be erased, otherwise the result of the erase.
+ */
+pbio_error_t pbdrv_block_device_erase_raw(pbio_os_state_t *state, uint32_t address) {
+    if (address < RAW_WRITE_MIN_ADDRESS || address % FLASH_SIZE_ERASE ||
+        address + FLASH_SIZE_ERASE > FLASH_SIZE_TOTAL) {
+        return PBIO_ERROR_INVALID_ARG;
+    }
+    return flash_erase_or_write(state, address, NULL, 0);
+}
+
+/**
+ * Writes data anywhere on the chip, above the protected area.
+ *
+ * The block must have been erased first.
+ *
+ * @param [in]  state   Protothread state.
+ * @param [in]  address Address to write to.
+ * @param [in]  buffer  The data to write.
+ * @param [in]  size    Number of bytes to write.
+ * @return              ::PBIO_ERROR_INVALID_ARG if the range is not allowed
+ *                      to be written, otherwise the result of the write.
+ */
+pbio_error_t pbdrv_block_device_write_raw(pbio_os_state_t *state, uint32_t address, const uint8_t *buffer, uint32_t size) {
+
+    static pbio_os_state_t sub;
+    static uint32_t size_done;
+    static uint32_t size_now;
+    pbio_error_t err;
+
+    if (address < RAW_WRITE_MIN_ADDRESS || size == 0 || address + size > FLASH_SIZE_TOTAL) {
+        return PBIO_ERROR_INVALID_ARG;
+    }
+
+    PBIO_OS_ASYNC_BEGIN(state);
+
+    for (size_done = 0; size_done < size; size_done += size_now) {
+        // A write that crosses a page boundary wraps around to the start of
+        // the page on this device, so split it up.
+        size_now = FLASH_SIZE_WRITE - ((address + size_done) % FLASH_SIZE_WRITE);
+        size_now = pbio_int_math_min(size_now, size - size_done);
+
+        PBIO_OS_AWAIT(state, &sub, err = flash_erase_or_write(&sub,
+            address + size_done, (uint8_t *)buffer + size_done, size_now));
+        if (err != PBIO_SUCCESS) {
+            return err;
+        }
+    }
+
+    PBIO_OS_ASYNC_END(PBIO_SUCCESS);
 }
 #endif // PBDRV_CONFIG_BLOCK_DEVICE_RAW_ACCESS
 

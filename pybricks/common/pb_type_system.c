@@ -230,6 +230,59 @@ static mp_obj_t pb_type_System_flash_files(size_t n_args, const mp_obj_t *args) 
 }
 static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(pb_type_System_flash_files_obj, 0, 1, pb_type_System_flash_files);
 
+// Experimental: reads part of a file on the external flash.
+static mp_obj_t pb_type_System_flash_read_file(size_t n_args, const mp_obj_t *args) {
+
+    const char *path = mp_obj_str_get_str(args[0]);
+    uint32_t offset = n_args > 1 ? mp_obj_get_int(args[1]) : 0;
+    uint32_t size = n_args > 2 ? mp_obj_get_int(args[2]) : 1024;
+
+    pb_assert(pbio_flash_fs_mount());
+
+    vstr_t vstr;
+    vstr_init_len(&vstr, size);
+
+    uint32_t size_read = 0;
+    pbio_error_t err = pbio_flash_fs_read_file(path, offset, (uint8_t *)vstr.buf, size, &size_read);
+    pbio_flash_fs_unmount();
+    pb_assert(err);
+
+    vstr.len = size_read;
+    return mp_obj_new_bytes_from_vstr(&vstr);
+}
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(pb_type_System_flash_read_file_obj, 1, 3, pb_type_System_flash_read_file);
+
+// Experimental: writes a whole file on the external flash.
+static mp_obj_t pb_type_System_flash_write_file(mp_obj_t path_in, mp_obj_t data_in) {
+
+    const char *path = mp_obj_str_get_str(path_in);
+
+    mp_buffer_info_t bufinfo;
+    mp_get_buffer_raise(data_in, &bufinfo, MP_BUFFER_READ);
+
+    pb_assert(pbio_flash_fs_mount());
+    pbio_error_t err = pbio_flash_fs_write_file(path, bufinfo.buf, bufinfo.len);
+    pbio_flash_fs_unmount();
+    pb_assert(err);
+
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_2(pb_type_System_flash_write_file_obj, pb_type_System_flash_write_file);
+
+// Experimental: deletes a file on the external flash.
+static mp_obj_t pb_type_System_flash_remove(mp_obj_t path_in) {
+
+    const char *path = mp_obj_str_get_str(path_in);
+
+    pb_assert(pbio_flash_fs_mount());
+    pbio_error_t err = pbio_flash_fs_remove(path);
+    pbio_flash_fs_unmount();
+    pb_assert(err);
+
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(pb_type_System_flash_remove_obj, pb_type_System_flash_remove);
+
 static mp_obj_t pb_type_System_flash_usage(void) {
 
     pb_assert(pbio_flash_fs_mount());
@@ -252,6 +305,9 @@ static const mp_rom_map_elem_t common_System_locals_dict_table[] = {
     #if PBIO_CONFIG_FLASH_FS
     { MP_ROM_QSTR(MP_QSTR_flash_files), MP_ROM_PTR(&pb_type_System_flash_files_obj) },
     { MP_ROM_QSTR(MP_QSTR_flash_usage), MP_ROM_PTR(&pb_type_System_flash_usage_obj) },
+    { MP_ROM_QSTR(MP_QSTR_flash_read_file), MP_ROM_PTR(&pb_type_System_flash_read_file_obj) },
+    { MP_ROM_QSTR(MP_QSTR_flash_write_file), MP_ROM_PTR(&pb_type_System_flash_write_file_obj) },
+    { MP_ROM_QSTR(MP_QSTR_flash_remove), MP_ROM_PTR(&pb_type_System_flash_remove_obj) },
     #endif
     #if PBDRV_CONFIG_BLOCK_DEVICE_RAW_ACCESS
     { MP_ROM_QSTR(MP_QSTR_flash_read), MP_ROM_PTR(&pb_type_System_flash_read_obj) },

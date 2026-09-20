@@ -58,6 +58,10 @@ uint32_t pbdrv_block_device_get_writable_size(void);
 
 #if PBDRV_CONFIG_BLOCK_DEVICE_RAW_ACCESS
 pbio_error_t pbdrv_block_device_read_raw(pbio_os_state_t *state, uint32_t address, uint8_t *buffer, uint32_t size);
+
+pbio_error_t pbdrv_block_device_erase_raw(pbio_os_state_t *state, uint32_t address);
+
+pbio_error_t pbdrv_block_device_write_raw(pbio_os_state_t *state, uint32_t address, const uint8_t *buffer, uint32_t size);
 #endif
 
 #else

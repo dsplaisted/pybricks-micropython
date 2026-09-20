@@ -5,8 +5,9 @@
 // flash. Sharing that file system means songs and their data can live on the
 // same hub, instead of one overwriting the other.
 //
-// Experimental, and currently read only: programming and erasing are not
-// implemented, so nothing here can modify the file system.
+// Experimental. Writing is limited to the file system area by the block
+// device driver, so the storage of the system and the area used by firmware
+// updates cannot be touched from here.
 
 #include <pbio/config.h>
 
@@ -17,6 +18,7 @@
 #include <string.h>
 
 #include <pbdrv/block_device.h>
+#include <pbdrv/watchdog.h>
 
 #include <pbio/error.h>
 #include <pbio/flash_fs.h>
@@ -41,6 +43,7 @@
 static uint8_t read_buffer[FS_CACHE_SIZE];
 static uint8_t prog_buffer[FS_CACHE_SIZE];
 static uint8_t lookahead_buffer[FS_LOOKAHEAD_SIZE];
+static uint8_t file_buffer[FS_CACHE_SIZE];
 
 static lfs2_t lfs;
 static bool mounted;
@@ -59,20 +62,40 @@ static int flash_fs_read(const struct lfs2_config *c, lfs2_block_t block, lfs2_o
     pbio_os_state_t state = 0;
     pbio_error_t err;
     while ((err = pbdrv_block_device_read_raw(&state, address, buffer, size)) == PBIO_ERROR_AGAIN) {
-        // The read completes on interrupts, so keep driving it.
+        // The read completes on interrupts, so keep driving it. Background
+        // processes don't run while waiting, so feed the watchdog here.
+        pbdrv_watchdog_update();
     }
 
     return err == PBIO_SUCCESS ? LFS2_ERR_OK : LFS2_ERR_IO;
 }
 
 static int flash_fs_prog(const struct lfs2_config *c, lfs2_block_t block, lfs2_off_t off, const void *buffer, lfs2_size_t size) {
-    // Read only for now.
-    return LFS2_ERR_IO;
+
+    uint32_t address = FS_START_ADDRESS + block * c->block_size + off;
+
+    pbio_os_state_t state = 0;
+    pbio_error_t err;
+    while ((err = pbdrv_block_device_write_raw(&state, address, buffer, size)) == PBIO_ERROR_AGAIN) {
+        pbdrv_watchdog_update();
+    }
+
+    return err == PBIO_SUCCESS ? LFS2_ERR_OK : LFS2_ERR_IO;
 }
 
 static int flash_fs_erase(const struct lfs2_config *c, lfs2_block_t block) {
-    // Read only for now.
-    return LFS2_ERR_IO;
+
+    uint32_t address = FS_START_ADDRESS + block * c->block_size;
+
+    pbio_os_state_t state = 0;
+    pbio_error_t err;
+    while ((err = pbdrv_block_device_erase_raw(&state, address)) == PBIO_ERROR_AGAIN) {
+        // Erasing takes tens of milliseconds each, and writing a song erases
+        // many blocks, which is far longer than the watchdog allows.
+        pbdrv_watchdog_update();
+    }
+
+    return err == PBIO_SUCCESS ? LFS2_ERR_OK : LFS2_ERR_IO;
 }
 
 static int flash_fs_sync(const struct lfs2_config *c) {
@@ -183,6 +206,103 @@ pbio_error_t pbio_flash_fs_get_usage(uint32_t *used_bytes, uint32_t *total_bytes
     *used_bytes = (uint32_t)used_blocks * FS_BLOCK_SIZE;
     *total_bytes = (uint32_t)FS_BLOCK_COUNT * FS_BLOCK_SIZE;
     return PBIO_SUCCESS;
+}
+
+/**
+ * Reads part of a file.
+ *
+ * @param [in]  path        File to read.
+ * @param [in]  offset      Where to start reading.
+ * @param [out] buffer      Buffer to receive the data.
+ * @param [in]  size        Number of bytes to read.
+ * @param [out] size_read   Number of bytes actually read, which is less than
+ *                          @p size at the end of the file.
+ * @return                  ::PBIO_ERROR_INVALID_OP if not mounted,
+ *                          ::PBIO_ERROR_FAILED if the file can't be read,
+ *                          otherwise ::PBIO_SUCCESS.
+ */
+pbio_error_t pbio_flash_fs_read_file(const char *path, uint32_t offset, uint8_t *buffer, uint32_t size, uint32_t *size_read) {
+
+    if (!mounted) {
+        return PBIO_ERROR_INVALID_OP;
+    }
+
+    struct lfs2_file_config file_config = { .buffer = file_buffer };
+    lfs2_file_t file;
+
+    if (lfs2_file_opencfg(&lfs, &file, path, LFS2_O_RDONLY, &file_config) != LFS2_ERR_OK) {
+        return PBIO_ERROR_FAILED;
+    }
+
+    pbio_error_t err = PBIO_SUCCESS;
+    if (lfs2_file_seek(&lfs, &file, offset, LFS2_SEEK_SET) < 0) {
+        err = PBIO_ERROR_FAILED;
+    } else {
+        lfs2_ssize_t result = lfs2_file_read(&lfs, &file, buffer, size);
+        if (result < 0) {
+            err = PBIO_ERROR_FAILED;
+        } else {
+            *size_read = result;
+        }
+    }
+
+    lfs2_file_close(&lfs, &file);
+    return err;
+}
+
+/**
+ * Writes a whole file, replacing it if it exists.
+ *
+ * This erases and programs the flash, so it takes a while and must not be
+ * done while sound is playing from the same chip.
+ *
+ * @param [in]  path        File to write.
+ * @param [in]  data        The data to write.
+ * @param [in]  size        Number of bytes to write.
+ * @return                  ::PBIO_ERROR_INVALID_OP if not mounted,
+ *                          ::PBIO_ERROR_FAILED if it can't be written,
+ *                          otherwise ::PBIO_SUCCESS.
+ */
+pbio_error_t pbio_flash_fs_write_file(const char *path, const uint8_t *data, uint32_t size) {
+
+    if (!mounted) {
+        return PBIO_ERROR_INVALID_OP;
+    }
+
+    struct lfs2_file_config file_config = { .buffer = file_buffer };
+    lfs2_file_t file;
+
+    if (lfs2_file_opencfg(&lfs, &file, path, LFS2_O_WRONLY | LFS2_O_CREAT | LFS2_O_TRUNC, &file_config) != LFS2_ERR_OK) {
+        return PBIO_ERROR_FAILED;
+    }
+
+    pbio_error_t err = PBIO_SUCCESS;
+    if (lfs2_file_write(&lfs, &file, data, size) != (lfs2_ssize_t)size) {
+        err = PBIO_ERROR_FAILED;
+    }
+
+    if (lfs2_file_close(&lfs, &file) != LFS2_ERR_OK) {
+        err = PBIO_ERROR_FAILED;
+    }
+
+    return err;
+}
+
+/**
+ * Deletes a file or an empty directory.
+ *
+ * @param [in]  path        What to delete.
+ * @return                  ::PBIO_ERROR_INVALID_OP if not mounted,
+ *                          ::PBIO_ERROR_FAILED if it can't be deleted,
+ *                          otherwise ::PBIO_SUCCESS.
+ */
+pbio_error_t pbio_flash_fs_remove(const char *path) {
+
+    if (!mounted) {
+        return PBIO_ERROR_INVALID_OP;
+    }
+
+    return lfs2_remove(&lfs, path) == LFS2_ERR_OK ? PBIO_SUCCESS : PBIO_ERROR_FAILED;
 }
 
 #endif // PBIO_CONFIG_FLASH_FS

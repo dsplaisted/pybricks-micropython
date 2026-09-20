@@ -8,7 +8,7 @@
  * external flash, so that files such as songs can be shared with it instead
  * of overwriting it.
  *
- * Experimental, and currently read only.
+ * Experimental.
  * @{
  */
 
@@ -40,6 +40,12 @@ void pbio_flash_fs_unmount(void);
 pbio_error_t pbio_flash_fs_list(const char *path, pbio_flash_fs_list_callback_t callback, void *context);
 
 pbio_error_t pbio_flash_fs_get_usage(uint32_t *used_bytes, uint32_t *total_bytes);
+
+pbio_error_t pbio_flash_fs_read_file(const char *path, uint32_t offset, uint8_t *buffer, uint32_t size, uint32_t *size_read);
+
+pbio_error_t pbio_flash_fs_write_file(const char *path, const uint8_t *data, uint32_t size);
+
+pbio_error_t pbio_flash_fs_remove(const char *path);
 
 #endif // PBIO_CONFIG_FLASH_FS
 
