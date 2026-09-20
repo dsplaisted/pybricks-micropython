@@ -614,9 +614,9 @@ PBIO_SRC_C += $(BUILD)/font_terminus_normal_16.c
 PBIO_SRC_C += $(BUILD)/font_mono_8x5_8.c
 endif
 
-# Experimental MP3 playback with Speaker.play_mp3(). Set PB_MP3 to the path of
-# an MP3 file (without spaces) to embed it in the firmware. Run "make clean"
-# after adding or removing PB_MP3.
+# Experimental MP3 playback with Speaker.play_mp3(). Set PB_MP3 to one or more
+# MP3 files (paths without spaces) to embed them in the firmware. Run
+# "make clean" after adding or removing PB_MP3.
 ifneq ($(PB_MP3),)
 CFLAGS += -DPBIO_CONFIG_SOUND_MP3=1
 CFLAGS += -I$(PBTOP)/lib/minimp3
@@ -791,7 +791,7 @@ $(BUILD)/hmi_ev3_ui_credits.c: $(CREDITS_CONVERT)
 
 $(BUILD)/pb_mp3_data.c: $(PB_MP3) $(PBTOP)/tools/embed_file.py
 	$(ECHO) "GEN $@"
-	$(Q)$(PYTHON) $(PBTOP)/tools/embed_file.py pb_mp3_data $< $@
+	$(Q)$(PYTHON) $(PBTOP)/tools/embed_file.py $@ $(PB_MP3)
 
 $(BUILD)/firmware.elf $(BUILD)/pybricks-virtualhub: $(LD_FILES) $(OBJ)
 	$(ECHO) "LINK $@"

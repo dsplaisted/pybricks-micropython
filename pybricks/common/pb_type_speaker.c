@@ -339,15 +339,20 @@ static MP_DEFINE_CONST_FUN_OBJ_KW(pb_type_Speaker_play_notes_obj, 1, pb_type_Spe
 
 // Experimental: plays an MP3 file embedded in the firmware at build time.
 
-// Generated from the file given by PB_MP3 when building.
-extern const uint8_t pb_mp3_data[];
-extern const uint32_t pb_mp3_data_size;
+// Generated from the files given by PB_MP3 when building.
+extern const uint8_t *const pb_mp3_song_data[];
+extern const uint32_t pb_mp3_song_size[];
+extern const uint32_t pb_mp3_song_count;
 
 // Decoder memory, kept here so the garbage collector won't free it while
 // playing. Playback is always stopped when the program ends.
 MP_REGISTER_ROOT_POINTER(void *pb_mp3_context);
 
-static void pb_type_Speaker_start_mp3(bool loop, bool persist) {
+static void pb_type_Speaker_start_mp3(uint32_t index, bool loop, bool persist) {
+
+    if (index >= pb_mp3_song_count) {
+        mp_raise_ValueError(MP_ERROR_TEXT("no such song"));
+    }
 
     // Stop first, so the old memory is no longer used when replaced.
     pbio_sound_mp3_stop();
@@ -362,18 +367,19 @@ static void pb_type_Speaker_start_mp3(bool loop, bool persist) {
 
     void *context = persist ? pbsys_storage_get_sound_memory() : MP_STATE_VM(pb_mp3_context);
 
-    pb_assert(pbio_sound_mp3_start(context, pb_mp3_data, pb_mp3_data_size, loop, persist));
+    pb_assert(pbio_sound_mp3_start(context, pb_mp3_song_data[index], pb_mp3_song_size[index], loop, persist));
 }
 
 static mp_obj_t pb_type_Speaker_play_mp3(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
     PB_PARSE_ARGS_METHOD(n_args, pos_args, kw_args,
         pb_type_Speaker_obj_t, self,
+        PB_ARG_DEFAULT_INT(song, 0),
         PB_ARG_DEFAULT_FALSE(loop),
         PB_ARG_DEFAULT_FALSE(persist));
     // The volume is shared, so nothing else is needed from the instance.
     (void)self;
 
-    pb_type_Speaker_start_mp3(mp_obj_is_true(loop_in), mp_obj_is_true(persist_in));
+    pb_type_Speaker_start_mp3(pb_obj_get_int(song_in), mp_obj_is_true(loop_in), mp_obj_is_true(persist_in));
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_KW(pb_type_Speaker_play_mp3_obj, 1, pb_type_Speaker_play_mp3);
@@ -389,6 +395,11 @@ static mp_obj_t pb_type_Speaker_resume_mp3(mp_obj_t self_in) {
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(pb_type_Speaker_resume_mp3_obj, pb_type_Speaker_resume_mp3);
+
+static mp_obj_t pb_type_Speaker_mp3_count(mp_obj_t self_in) {
+    return mp_obj_new_int_from_uint(pb_mp3_song_count);
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(pb_type_Speaker_mp3_count_obj, pb_type_Speaker_mp3_count);
 
 static mp_obj_t pb_type_Speaker_mp3_playing(mp_obj_t self_in) {
     return mp_obj_new_bool(pbio_sound_mp3_is_playing());
@@ -408,6 +419,7 @@ static MP_DEFINE_CONST_FUN_OBJ_1(pb_type_Speaker_mp3_stopped_obj, pb_type_Speake
 static mp_obj_t pb_type_Speaker_play_pause_mp3(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
     PB_PARSE_ARGS_METHOD(n_args, pos_args, kw_args,
         pb_type_Speaker_obj_t, self,
+        PB_ARG_DEFAULT_INT(song, 0),
         PB_ARG_DEFAULT_FALSE(loop),
         PB_ARG_DEFAULT_FALSE(persist));
     (void)self;
@@ -419,7 +431,7 @@ static mp_obj_t pb_type_Speaker_play_pause_mp3(size_t n_args, const mp_obj_t *po
     } else if (pbio_sound_mp3_is_paused()) {
         pbio_sound_mp3_resume();
     } else {
-        pb_type_Speaker_start_mp3(mp_obj_is_true(loop_in), mp_obj_is_true(persist_in));
+        pb_type_Speaker_start_mp3(pb_obj_get_int(song_in), mp_obj_is_true(loop_in), mp_obj_is_true(persist_in));
     }
 
     // Tells the caller which way it went, for showing it on the display.
@@ -481,6 +493,7 @@ static const mp_rom_map_elem_t pb_type_Speaker_locals_dict_table[] = {
     #if PBIO_CONFIG_SOUND_MP3
     { MP_ROM_QSTR(MP_QSTR_play_mp3), MP_ROM_PTR(&pb_type_Speaker_play_mp3_obj) },
     { MP_ROM_QSTR(MP_QSTR_play_pause_mp3), MP_ROM_PTR(&pb_type_Speaker_play_pause_mp3_obj) },
+    { MP_ROM_QSTR(MP_QSTR_mp3_count), MP_ROM_PTR(&pb_type_Speaker_mp3_count_obj) },
     { MP_ROM_QSTR(MP_QSTR_mp3_playing), MP_ROM_PTR(&pb_type_Speaker_mp3_playing_obj) },
     { MP_ROM_QSTR(MP_QSTR_mp3_paused), MP_ROM_PTR(&pb_type_Speaker_mp3_paused_obj) },
     { MP_ROM_QSTR(MP_QSTR_mp3_stopped), MP_ROM_PTR(&pb_type_Speaker_mp3_stopped_obj) },
