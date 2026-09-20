@@ -16,6 +16,7 @@
 #include <pbsys/host.h>
 #include <pbsys/storage.h>
 
+#include "./flash_transfer.h"
 #include "./storage.h"
 #include "./program_stop.h"
 
@@ -102,6 +103,11 @@ pbio_pybricks_error_t pbsys_command(const uint8_t *data, uint32_t size) {
                     return PBIO_PYBRICKS_ERROR_VALUE_NOT_ALLOWED;
             }
         }
+        case PBIO_PYBRICKS_COMMAND_READ_FLASH_FILE:
+            if (size < 2) {
+                return PBIO_PYBRICKS_ERROR_VALUE_NOT_ALLOWED;
+            }
+            return pbsys_flash_transfer_request(data[1], &data[2], size - 2);
         #endif // PBIO_CONFIG_FLASH_FS
 
         case PBIO_PYBRICKS_COMMAND_WRITE_USER_RAM:

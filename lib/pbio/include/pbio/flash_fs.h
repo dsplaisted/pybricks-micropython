@@ -51,6 +51,12 @@ void pbio_flash_fs_unmount(void);
 
 pbio_error_t pbio_flash_fs_list(const char *path, pbio_flash_fs_list_callback_t callback, void *context);
 
+pbio_error_t pbio_flash_fs_list_open(const char *path);
+
+pbio_error_t pbio_flash_fs_list_next(char *name, uint32_t name_size, uint32_t *size, bool *is_dir, bool *done);
+
+void pbio_flash_fs_list_close(void);
+
 pbio_error_t pbio_flash_fs_get_usage(uint32_t *used_bytes, uint32_t *total_bytes);
 
 pbio_error_t pbio_flash_fs_write_open(const char *path);

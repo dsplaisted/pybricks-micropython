@@ -17,6 +17,8 @@
 #include <pbsys/host.h>
 #include <pbsys/status.h>
 
+#include "./flash_transfer.h"
+
 #include "light.h"
 #include "storage.h"
 #include "program_stop.h"
@@ -50,6 +52,8 @@ static pbio_error_t pbsys_system_poll_process_thread(pbio_os_state_t *state, voi
 }
 
 void pbsys_init(void) {
+
+    pbsys_flash_transfer_init();
 
     // Makes user data and settings available to modules below, so must be done first.
     pbsys_storage_init();

@@ -224,6 +224,27 @@ typedef enum {
      * - ::PBIO_PYBRICKS_ERROR_VALUE_NOT_ALLOWED if the file can't be written.
      */
     PBIO_PYBRICKS_COMMAND_WRITE_FLASH_FILE = 8,
+
+    /**
+     * Experimental: lists or reads the files on the external flash of the
+     * hub.
+     *
+     * The answer arrives as ::PBIO_PYBRICKS_EVENT_FLASH_FILE_DATA events,
+     * ending with an event that says the answer is complete or that it
+     * failed. Only one request can be answered at a time.
+     *
+     * Parameters:
+     * - operation: 0 to list a directory, 1 to read a file (8-bit unsigned
+     *   integer).
+     * - payload: The path when listing. When reading, the offset in the file
+     *   (32-bit little-endian unsigned integer), how much to read (16-bit
+     *   little-endian unsigned integer) and then the path.
+     *
+     * Errors:
+     * - ::PBIO_PYBRICKS_ERROR_BUSY if another request is being answered.
+     * - ::PBIO_PYBRICKS_ERROR_VALUE_NOT_ALLOWED for a bad request.
+     */
+    PBIO_PYBRICKS_COMMAND_READ_FLASH_FILE = 9,
 } pbio_pybricks_command_t;
 /**
  * Application-specific error codes that are used in ATT_ERROR_RSP.
@@ -303,6 +324,18 @@ typedef enum {
      * @since Unreleased. Should not be considered final.
      */
     PBIO_PYBRICKS_EVENT_WRITE_TELEMETRY = 3,
+
+    /**
+     * Experimental: answers ::PBIO_PYBRICKS_COMMAND_READ_FLASH_FILE.
+     *
+     * Payload:
+     * - kind: 0 for an entry of a directory, 1 for a piece of a file, 2 when
+     *   the answer is complete, 3 when the request failed.
+     * - For an entry: whether it is a directory (8-bit), its size (32-bit
+     *   little-endian) and its name.
+     * - For a piece of a file: one unused byte and then the data.
+     */
+    PBIO_PYBRICKS_EVENT_FLASH_FILE_DATA = 4,
 
     /**
      * The total number of events that can be queued and sent.

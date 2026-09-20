@@ -53,6 +53,11 @@ static struct lfs2_file_config stream_config = { .buffer = file_buffer };
 static lfs2_file_t stream_file;
 static bool stream_open;
 
+// One directory can be open for listing, which is done a piece at a time so
+// that each entry can be sent to the computer before reading the next.
+static lfs2_dir_t list_dir;
+static bool list_open;
+
 /**
  * Reads from the chip, waiting for the transfer to complete.
  *
@@ -191,6 +196,86 @@ pbio_error_t pbio_flash_fs_list(const char *path, pbio_flash_fs_list_callback_t 
 
     lfs2_dir_close(&lfs, &dir);
     return PBIO_SUCCESS;
+}
+
+/**
+ * Opens a directory for listing it one entry at a time.
+ *
+ * @param [in]  path    Directory to list, such as "/".
+ * @return              ::PBIO_ERROR_FAILED if it can't be opened, otherwise
+ *                      ::PBIO_SUCCESS.
+ */
+pbio_error_t pbio_flash_fs_list_open(const char *path) {
+
+    pbio_flash_fs_list_close();
+
+    pbio_error_t err = pbio_flash_fs_mount();
+    if (err != PBIO_SUCCESS) {
+        return err;
+    }
+
+    if (lfs2_dir_open(&lfs, &list_dir, path) != LFS2_ERR_OK) {
+        pbio_flash_fs_unmount();
+        return PBIO_ERROR_FAILED;
+    }
+
+    list_open = true;
+    return PBIO_SUCCESS;
+}
+
+/**
+ * Gets the next entry of the directory that is open for listing.
+ *
+ * @param [out] name        Name of the entry.
+ * @param [in]  name_size   Size of @p name.
+ * @param [out] size        Size of the entry in bytes.
+ * @param [out] is_dir      Whether the entry is a directory.
+ * @param [out] done        Whether the end of the directory was reached, in
+ *                          which case the other values are not set.
+ * @return                  ::PBIO_ERROR_INVALID_OP if no directory is open,
+ *                          ::PBIO_ERROR_FAILED on a read error, otherwise
+ *                          ::PBIO_SUCCESS.
+ */
+pbio_error_t pbio_flash_fs_list_next(char *name, uint32_t name_size, uint32_t *size, bool *is_dir, bool *done) {
+
+    if (!list_open) {
+        return PBIO_ERROR_INVALID_OP;
+    }
+
+    struct lfs2_info info;
+    for (;;) {
+        int result = lfs2_dir_read(&lfs, &list_dir, &info);
+        if (result < 0) {
+            return PBIO_ERROR_FAILED;
+        }
+        if (result == 0) {
+            *done = true;
+            return PBIO_SUCCESS;
+        }
+        // Skip the entries for this and the parent directory.
+        if (info.name[0] == '.' && (info.name[1] == 0 || (info.name[1] == '.' && info.name[2] == 0))) {
+            continue;
+        }
+        break;
+    }
+
+    strncpy(name, info.name, name_size - 1);
+    name[name_size - 1] = 0;
+    *size = info.size;
+    *is_dir = info.type == LFS2_TYPE_DIR;
+    *done = false;
+    return PBIO_SUCCESS;
+}
+
+/**
+ * Closes the directory that was open for listing.
+ */
+void pbio_flash_fs_list_close(void) {
+    if (list_open) {
+        lfs2_dir_close(&lfs, &list_dir);
+        list_open = false;
+        pbio_flash_fs_unmount();
+    }
 }
 
 /**
