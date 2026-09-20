@@ -126,6 +126,8 @@ static pbio_error_t pbsys_flash_transfer_process_thread(pbio_os_state_t *state, 
     static uint32_t entry_size;
     static bool is_dir;
     static pbio_error_t err;
+    // Which step failed, to help find out why.
+    static uint8_t stage;
 
     PBIO_OS_ASYNC_BEGIN(state);
 
@@ -135,10 +137,12 @@ static pbio_error_t pbsys_flash_transfer_process_thread(pbio_os_state_t *state, 
 
         if (request.operation == PBSYS_FLASH_TRANSFER_LIST) {
 
+            stage = 1;
             err = pbio_flash_fs_list_open(request.path);
 
             while (err == PBIO_SUCCESS) {
 
+                stage = 2;
                 err = pbio_flash_fs_list_next(&((char *)payload)[6], PAYLOAD_SIZE, &entry_size, &is_dir, &done);
                 if (err != PBIO_SUCCESS || done) {
                     break;
@@ -149,6 +153,7 @@ static pbio_error_t pbsys_flash_transfer_process_thread(pbio_os_state_t *state, 
                 pbio_set_uint32_le(&payload[2], entry_size);
                 payload_size = 6 + strlen(&((char *)payload)[6]);
 
+                stage = 3;
                 PBIO_OS_AWAIT(state, &sub, err = pbsys_flash_transfer_send(&sub, payload, payload_size));
             }
 
@@ -156,6 +161,7 @@ static pbio_error_t pbsys_flash_transfer_process_thread(pbio_os_state_t *state, 
 
         } else {
 
+            stage = 4;
             err = pbio_flash_fs_mount();
             if (err == PBIO_SUCCESS) {
                 err = pbio_flash_fs_read_file(request.path, request.offset, &payload[2], request.size, &size_read);
@@ -173,8 +179,9 @@ static pbio_error_t pbsys_flash_transfer_process_thread(pbio_os_state_t *state, 
         // Tell the computer that the answer is complete, or that it failed.
         payload[0] = err == PBIO_SUCCESS ?
             PBSYS_FLASH_TRANSFER_REPLY_END : PBSYS_FLASH_TRANSFER_REPLY_ERROR;
-        payload[1] = 0;
-        PBIO_OS_AWAIT(state, &sub, pbsys_flash_transfer_send(&sub, payload, 2));
+        payload[1] = stage;
+        payload[2] = (uint8_t)err;
+        PBIO_OS_AWAIT(state, &sub, pbsys_flash_transfer_send(&sub, payload, 3));
 
         request.pending = false;
     }
