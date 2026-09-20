@@ -375,6 +375,18 @@ static mp_obj_t pb_type_Speaker_play_mp3(size_t n_args, const mp_obj_t *pos_args
 }
 static MP_DEFINE_CONST_FUN_OBJ_KW(pb_type_Speaker_play_mp3_obj, 1, pb_type_Speaker_play_mp3);
 
+static mp_obj_t pb_type_Speaker_pause_mp3(mp_obj_t self_in) {
+    pbio_sound_mp3_pause();
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(pb_type_Speaker_pause_mp3_obj, pb_type_Speaker_pause_mp3);
+
+static mp_obj_t pb_type_Speaker_resume_mp3(mp_obj_t self_in) {
+    pbio_sound_mp3_resume();
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(pb_type_Speaker_resume_mp3_obj, pb_type_Speaker_resume_mp3);
+
 static mp_obj_t pb_type_Speaker_stop_mp3(mp_obj_t self_in) {
     pbio_sound_mp3_stop();
     MP_STATE_VM(pb_mp3_context) = NULL;
@@ -397,6 +409,7 @@ static mp_obj_t pb_type_Speaker_mp3_stats(size_t n_args, const mp_obj_t *pos_arg
 
     mp_obj_t dict = mp_obj_new_dict(16);
     mp_obj_dict_store(dict, MP_OBJ_NEW_QSTR(MP_QSTR_playing), mp_obj_new_bool(stats.playing));
+    mp_obj_dict_store(dict, MP_OBJ_NEW_QSTR(MP_QSTR_paused), mp_obj_new_bool(stats.paused));
     pb_type_Speaker_stats_store(dict, MP_QSTR_sample_rate, stats.sample_rate);
     pb_type_Speaker_stats_store(dict, MP_QSTR_channels, stats.channels);
     pb_type_Speaker_stats_store(dict, MP_QSTR_bitrate_kbps, stats.bitrate_kbps);
@@ -429,6 +442,8 @@ static const mp_rom_map_elem_t pb_type_Speaker_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_play_notes), MP_ROM_PTR(&pb_type_Speaker_play_notes_obj) },
     #if PBIO_CONFIG_SOUND_MP3
     { MP_ROM_QSTR(MP_QSTR_play_mp3), MP_ROM_PTR(&pb_type_Speaker_play_mp3_obj) },
+    { MP_ROM_QSTR(MP_QSTR_pause_mp3), MP_ROM_PTR(&pb_type_Speaker_pause_mp3_obj) },
+    { MP_ROM_QSTR(MP_QSTR_resume_mp3), MP_ROM_PTR(&pb_type_Speaker_resume_mp3_obj) },
     { MP_ROM_QSTR(MP_QSTR_stop_mp3), MP_ROM_PTR(&pb_type_Speaker_stop_mp3_obj) },
     { MP_ROM_QSTR(MP_QSTR_mp3_stats), MP_ROM_PTR(&pb_type_Speaker_mp3_stats_obj) },
     #endif

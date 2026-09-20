@@ -77,6 +77,8 @@ static struct {
     uint32_t end_halves;
     /** The driver is streaming the double buffer. */
     bool streaming;
+    /** Playback is paused and can be resumed where it left off. */
+    bool paused;
     /** Start of the statistics period. */
     uint32_t start_us;
     pbio_sound_mp3_stats_t stats;
@@ -276,6 +278,19 @@ static pbio_error_t pbio_sound_mp3_process_thread(pbio_os_state_t *state, void *
 }
 
 /**
+ * Starts the driver streaming the double buffer, which must be filled.
+ */
+static void pbio_sound_mp3_start_streaming(void) {
+    player.streaming = true;
+    player.stats.playing = true;
+    player.stats.paused = false;
+    // Keep the statistics running across a pause.
+    player.start_us = pbdrv_clock_get_us() - player.stats.elapsed_us;
+    pbdrv_sound_stream_start(player.ctx->buffer, 2 * HALF_SAMPLES, player.stats.sample_rate);
+    pbio_os_process_start(&pbio_sound_mp3_process, pbio_sound_mp3_process_thread, NULL);
+}
+
+/**
  * Starts playing MP3 data in the background.
  *
  * @param [in]  context             Memory of ::pbio_sound_mp3_get_context_size
@@ -314,11 +329,7 @@ pbio_error_t pbio_sound_mp3_start(void *context, const uint8_t *data, uint32_t s
     }
     player.stats.half_period_us = HALF_SAMPLES * 1000000 / sample_rate;
 
-    player.streaming = true;
-    player.stats.playing = true;
-    player.start_us = pbdrv_clock_get_us();
-    pbdrv_sound_stream_start(player.ctx->buffer, 2 * HALF_SAMPLES, sample_rate);
-    pbio_os_process_start(&pbio_sound_mp3_process, pbio_sound_mp3_process_thread, NULL);
+    pbio_sound_mp3_start_streaming();
 
     return PBIO_SUCCESS;
 }
@@ -328,6 +339,45 @@ pbio_error_t pbio_sound_mp3_start(void *context, const uint8_t *data, uint32_t s
  */
 void pbio_sound_mp3_stop(void) {
     pbio_sound_mp3_stop_streaming();
+    player.paused = false;
+    player.stats.paused = false;
+}
+
+/**
+ * Pauses playback, keeping the position in the song.
+ */
+void pbio_sound_mp3_pause(void) {
+    if (!player.streaming) {
+        return;
+    }
+    pbio_sound_mp3_stop_streaming();
+    player.paused = true;
+    player.stats.paused = true;
+}
+
+/**
+ * Resumes playback from where it was paused.
+ *
+ * Playback restarts at the beginning of the buffer, which still holds the
+ * audio from when it was paused. Up to two buffer halves are therefore
+ * played again, rather than skipped.
+ */
+void pbio_sound_mp3_resume(void) {
+    if (!player.paused || player.streaming) {
+        return;
+    }
+    player.paused = false;
+
+    // Both halves still hold audio, and the driver starts at the first one.
+    player.halves_filled = 2;
+    player.fill_pos = 0;
+
+    // The end is counted in halves played, which restarts at zero.
+    if (player.end_of_data) {
+        player.end_halves = 2;
+    }
+
+    pbio_sound_mp3_start_streaming();
 }
 
 /**
@@ -337,7 +387,7 @@ void pbio_sound_mp3_stop(void) {
  * @return  @c true if playback continues, @c false otherwise.
  */
 bool pbio_sound_mp3_stop_for_program_end(void) {
-    if (player.streaming && player.persist) {
+    if ((player.streaming || player.paused) && player.persist) {
         return true;
     }
     pbio_sound_mp3_stop_streaming();

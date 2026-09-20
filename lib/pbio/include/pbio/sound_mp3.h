@@ -27,6 +27,8 @@
 typedef struct {
     /** Whether audio is currently playing. */
     bool playing;
+    /** Whether playback is paused and can be resumed. */
+    bool paused;
     /** Sample rate of the stream in Hz. */
     uint32_t sample_rate;
     /** Number of channels in the stream (stereo is mixed to mono). */
@@ -63,6 +65,10 @@ size_t pbio_sound_mp3_get_context_size(void);
 pbio_error_t pbio_sound_mp3_start(void *context, const uint8_t *data, uint32_t size, bool loop, bool persist);
 
 void pbio_sound_mp3_stop(void);
+
+void pbio_sound_mp3_pause(void);
+
+void pbio_sound_mp3_resume(void);
 
 bool pbio_sound_mp3_stop_for_program_end(void);
 
