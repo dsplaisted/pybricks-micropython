@@ -21,5 +21,8 @@ if STOP:
     print("Stopped.")
 else:
     hub.speaker.volume(VOLUME)
-    hub.speaker.play_mp3(loop=True, persist=True)
+    hub.speaker.select_mp3(0)
+    hub.speaker.mp3_repeat(True)
+    hub.speaker.mp3_persist(True)
+    hub.speaker.play_mp3()
     print("Playing. This program ends now, but the music continues.")

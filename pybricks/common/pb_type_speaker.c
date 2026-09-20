@@ -349,67 +349,160 @@ extern const uint32_t pb_mp3_song_count;
 // playing. Playback is always stopped when the program ends.
 MP_REGISTER_ROOT_POINTER(void *pb_mp3_context);
 
-static void pb_type_Speaker_start_mp3(uint32_t index, bool loop, bool persist) {
+// Gets the memory for the decoder to work in.
+//
+// Where it comes from depends on whether playback is meant to outlive the
+// program, so this must be called after stopping and just before starting.
+static void *pb_type_Speaker_mp3_memory(void) {
 
-    if (index >= pb_mp3_song_count) {
-        mp_raise_ValueError(MP_ERROR_TEXT("no such song"));
+    if (pbio_sound_mp3_get_persist()) {
+        // Reserved memory that is not reused when this program ends, so that
+        // the sound can keep playing during and after the next programs.
+        MP_STATE_VM(pb_mp3_context) = NULL;
+        return pbsys_storage_get_sound_memory();
+    }
+
+    MP_STATE_VM(pb_mp3_context) = m_malloc(pbio_sound_mp3_get_context_size());
+    return MP_STATE_VM(pb_mp3_context);
+}
+
+// Starts the chosen song from the beginning.
+static void pb_type_Speaker_start_mp3(void) {
+
+    if (!pbio_sound_mp3_is_selected()) {
+        mp_raise_msg(&mp_type_RuntimeError, MP_ERROR_TEXT("no song selected"));
     }
 
     // Stop first, so the old memory is no longer used when replaced.
     pbio_sound_mp3_stop();
 
-    if (persist) {
-        // Reserved memory that is not reused when this program ends, so that
-        // the sound can keep playing during and after the next programs.
-        MP_STATE_VM(pb_mp3_context) = NULL;
-    } else {
-        MP_STATE_VM(pb_mp3_context) = m_malloc(pbio_sound_mp3_get_context_size());
+    pb_assert(pbio_sound_mp3_play(pb_type_Speaker_mp3_memory()));
+}
+
+// Experimental: chooses the song that the play methods will play.
+//
+// A whole number chooses a song built into the firmware. A string chooses a
+// file on the external flash.
+static mp_obj_t pb_type_Speaker_select_mp3(mp_obj_t self_in, mp_obj_t song_in) {
+
+    if (mp_obj_is_str(song_in)) {
+        pb_assert(pbio_sound_mp3_select_file(mp_obj_str_get_str(song_in)));
+        return mp_const_none;
     }
 
-    void *context = persist ? pbsys_storage_get_sound_memory() : MP_STATE_VM(pb_mp3_context);
-
-    pb_assert(pbio_sound_mp3_start(context, pb_mp3_song_data[index], pb_mp3_song_size[index], loop, persist));
-}
-
-static mp_obj_t pb_type_Speaker_play_mp3(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
-    PB_PARSE_ARGS_METHOD(n_args, pos_args, kw_args,
-        pb_type_Speaker_obj_t, self,
-        PB_ARG_DEFAULT_INT(song, 0),
-        PB_ARG_DEFAULT_FALSE(loop),
-        PB_ARG_DEFAULT_FALSE(persist));
-    // The volume is shared, so nothing else is needed from the instance.
-    (void)self;
-
-    pb_type_Speaker_start_mp3(pb_obj_get_int(song_in), mp_obj_is_true(loop_in), mp_obj_is_true(persist_in));
-    return mp_const_none;
-}
-static MP_DEFINE_CONST_FUN_OBJ_KW(pb_type_Speaker_play_mp3_obj, 1, pb_type_Speaker_play_mp3);
-
-// Experimental: plays an MP3 file from the external flash.
-static mp_obj_t pb_type_Speaker_play_mp3_file(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
-    PB_PARSE_ARGS_METHOD(n_args, pos_args, kw_args,
-        pb_type_Speaker_obj_t, self,
-        PB_ARG_REQUIRED(path),
-        PB_ARG_DEFAULT_FALSE(loop),
-        PB_ARG_DEFAULT_FALSE(persist));
-    (void)self;
-
-    pbio_sound_mp3_stop();
-
-    bool persist = mp_obj_is_true(persist_in);
-    if (persist) {
-        MP_STATE_VM(pb_mp3_context) = NULL;
-    } else {
-        MP_STATE_VM(pb_mp3_context) = m_malloc(pbio_sound_mp3_get_context_size());
+    mp_int_t index = pb_obj_get_int(song_in);
+    if (index < 0 || (uint32_t)index >= pb_mp3_song_count) {
+        mp_raise_ValueError(MP_ERROR_TEXT("no such song"));
     }
 
-    void *context = persist ? pbsys_storage_get_sound_memory() : MP_STATE_VM(pb_mp3_context);
-
-    pb_assert(pbio_sound_mp3_start_file(context, mp_obj_str_get_str(path_in),
-        mp_obj_is_true(loop_in), persist));
+    pbio_sound_mp3_select(pb_mp3_song_data[index], pb_mp3_song_size[index], index);
     return mp_const_none;
 }
-static MP_DEFINE_CONST_FUN_OBJ_KW(pb_type_Speaker_play_mp3_file_obj, 1, pb_type_Speaker_play_mp3_file);
+static MP_DEFINE_CONST_FUN_OBJ_2(pb_type_Speaker_select_mp3_obj, pb_type_Speaker_select_mp3);
+
+// Experimental: gets the song that was chosen, or None if there is none.
+static mp_obj_t pb_type_Speaker_mp3_selected(mp_obj_t self_in) {
+
+    if (!pbio_sound_mp3_is_selected()) {
+        return mp_const_none;
+    }
+
+    const char *path = pbio_sound_mp3_get_selected_path();
+    if (path) {
+        return mp_obj_new_str(path, strlen(path));
+    }
+
+    return mp_obj_new_int_from_uint(pbio_sound_mp3_get_selected_index());
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(pb_type_Speaker_mp3_selected_obj, pb_type_Speaker_mp3_selected);
+
+#if PBIO_CONFIG_FLASH_FS
+// Collects the songs on the external flash while listing a directory.
+typedef struct {
+    mp_obj_t list;
+    const char *dir;
+} pb_type_Speaker_mp3_songs_t;
+
+static void pb_type_Speaker_mp3_songs_callback(const char *name, uint32_t size, bool is_dir, void *context) {
+
+    pb_type_Speaker_mp3_songs_t *songs = context;
+
+    uint32_t length = strlen(name);
+    if (is_dir || length < 4 || strcmp(&name[length - 4], ".mp3")) {
+        return;
+    }
+
+    // The path is what select_mp3() takes, so give it back ready to use.
+    vstr_t vstr;
+    vstr_init(&vstr, strlen(songs->dir) + length + 1);
+    vstr_add_str(&vstr, songs->dir);
+    if (vstr.len == 0 || vstr_str(&vstr)[vstr.len - 1] != '/') {
+        vstr_add_char(&vstr, '/');
+    }
+    vstr_add_str(&vstr, name);
+
+    mp_obj_list_append(songs->list, mp_obj_new_str_from_vstr(&vstr));
+}
+#endif // PBIO_CONFIG_FLASH_FS
+
+// Experimental: lists the songs that can be chosen with select_mp3().
+//
+// The songs built into the firmware come first, as whole numbers, followed by
+// the paths of the MP3 files on the external flash.
+static mp_obj_t pb_type_Speaker_mp3_songs(size_t n_args, const mp_obj_t *args) {
+
+    mp_obj_t list = mp_obj_new_list(0, NULL);
+
+    for (uint32_t i = 0; i < pb_mp3_song_count; i++) {
+        mp_obj_list_append(list, mp_obj_new_int_from_uint(i));
+    }
+
+    #if PBIO_CONFIG_FLASH_FS
+    const char *dir = n_args > 1 ? mp_obj_str_get_str(args[1]) : "/";
+
+    pb_assert(pbio_flash_fs_mount());
+
+    pb_type_Speaker_mp3_songs_t songs = { .list = list, .dir = dir };
+    pbio_error_t err = pbio_flash_fs_list(dir, pb_type_Speaker_mp3_songs_callback, &songs);
+    pbio_flash_fs_unmount();
+    pb_assert(err);
+    #endif // PBIO_CONFIG_FLASH_FS
+
+    return list;
+}
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(pb_type_Speaker_mp3_songs_obj, 1, 2, pb_type_Speaker_mp3_songs);
+
+// Experimental: gets or sets whether the song starts again when it ends.
+static mp_obj_t pb_type_Speaker_mp3_repeat(size_t n_args, const mp_obj_t *args) {
+
+    if (n_args > 1) {
+        pbio_sound_mp3_set_repeat(mp_obj_is_true(args[1]));
+        return mp_const_none;
+    }
+
+    return mp_obj_new_bool(pbio_sound_mp3_get_repeat());
+}
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(pb_type_Speaker_mp3_repeat_obj, 1, 2, pb_type_Speaker_mp3_repeat);
+
+// Experimental: gets or sets whether playback continues after the program
+// that started it ends. Takes effect the next time a song starts.
+static mp_obj_t pb_type_Speaker_mp3_persist(size_t n_args, const mp_obj_t *args) {
+
+    if (n_args > 1) {
+        pbio_sound_mp3_set_persist(mp_obj_is_true(args[1]));
+        return mp_const_none;
+    }
+
+    return mp_obj_new_bool(pbio_sound_mp3_get_persist());
+}
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(pb_type_Speaker_mp3_persist_obj, 1, 2, pb_type_Speaker_mp3_persist);
+
+// Experimental: plays the chosen song from the beginning.
+static mp_obj_t pb_type_Speaker_play_mp3(mp_obj_t self_in) {
+    pb_type_Speaker_start_mp3();
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(pb_type_Speaker_play_mp3_obj, pb_type_Speaker_play_mp3);
 
 static mp_obj_t pb_type_Speaker_pause_mp3(mp_obj_t self_in) {
     pbio_sound_mp3_pause();
@@ -445,11 +538,6 @@ static mp_obj_t pb_type_Speaker_store_mp3(mp_obj_t self_in, mp_obj_t song_in, mp
 }
 static MP_DEFINE_CONST_FUN_OBJ_3(pb_type_Speaker_store_mp3_obj, pb_type_Speaker_store_mp3);
 
-static mp_obj_t pb_type_Speaker_mp3_count(mp_obj_t self_in) {
-    return mp_obj_new_int_from_uint(pb_mp3_song_count);
-}
-static MP_DEFINE_CONST_FUN_OBJ_1(pb_type_Speaker_mp3_count_obj, pb_type_Speaker_mp3_count);
-
 static mp_obj_t pb_type_Speaker_mp3_playing(mp_obj_t self_in) {
     return mp_obj_new_bool(pbio_sound_mp3_is_playing());
 }
@@ -465,13 +553,7 @@ static mp_obj_t pb_type_Speaker_mp3_stopped(mp_obj_t self_in) {
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(pb_type_Speaker_mp3_stopped_obj, pb_type_Speaker_mp3_stopped);
 
-static mp_obj_t pb_type_Speaker_play_pause_mp3(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
-    PB_PARSE_ARGS_METHOD(n_args, pos_args, kw_args,
-        pb_type_Speaker_obj_t, self,
-        PB_ARG_DEFAULT_INT(song, 0),
-        PB_ARG_DEFAULT_FALSE(loop),
-        PB_ARG_DEFAULT_FALSE(persist));
-    (void)self;
+static mp_obj_t pb_type_Speaker_play_pause_mp3(mp_obj_t self_in) {
 
     // Acts like a play/pause button: pauses while playing, continues when
     // paused, and starts from the beginning when stopped.
@@ -480,13 +562,13 @@ static mp_obj_t pb_type_Speaker_play_pause_mp3(size_t n_args, const mp_obj_t *po
     } else if (pbio_sound_mp3_is_paused()) {
         pbio_sound_mp3_resume();
     } else {
-        pb_type_Speaker_start_mp3(pb_obj_get_int(song_in), mp_obj_is_true(loop_in), mp_obj_is_true(persist_in));
+        pb_type_Speaker_start_mp3();
     }
 
     // Tells the caller which way it went, for showing it on the display.
     return mp_obj_new_bool(pbio_sound_mp3_is_playing());
 }
-static MP_DEFINE_CONST_FUN_OBJ_KW(pb_type_Speaker_play_pause_mp3_obj, 1, pb_type_Speaker_play_pause_mp3);
+static MP_DEFINE_CONST_FUN_OBJ_1(pb_type_Speaker_play_pause_mp3_obj, pb_type_Speaker_play_pause_mp3);
 
 static mp_obj_t pb_type_Speaker_stop_mp3(mp_obj_t self_in) {
     pbio_sound_mp3_stop();
@@ -540,10 +622,13 @@ static const mp_rom_map_elem_t pb_type_Speaker_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_beep), MP_ROM_PTR(&pb_type_Speaker_beep_obj) },
     { MP_ROM_QSTR(MP_QSTR_play_notes), MP_ROM_PTR(&pb_type_Speaker_play_notes_obj) },
     #if PBIO_CONFIG_SOUND_MP3
+    { MP_ROM_QSTR(MP_QSTR_select_mp3), MP_ROM_PTR(&pb_type_Speaker_select_mp3_obj) },
+    { MP_ROM_QSTR(MP_QSTR_mp3_selected), MP_ROM_PTR(&pb_type_Speaker_mp3_selected_obj) },
+    { MP_ROM_QSTR(MP_QSTR_mp3_songs), MP_ROM_PTR(&pb_type_Speaker_mp3_songs_obj) },
+    { MP_ROM_QSTR(MP_QSTR_mp3_repeat), MP_ROM_PTR(&pb_type_Speaker_mp3_repeat_obj) },
+    { MP_ROM_QSTR(MP_QSTR_mp3_persist), MP_ROM_PTR(&pb_type_Speaker_mp3_persist_obj) },
     { MP_ROM_QSTR(MP_QSTR_play_mp3), MP_ROM_PTR(&pb_type_Speaker_play_mp3_obj) },
-    { MP_ROM_QSTR(MP_QSTR_play_mp3_file), MP_ROM_PTR(&pb_type_Speaker_play_mp3_file_obj) },
     { MP_ROM_QSTR(MP_QSTR_play_pause_mp3), MP_ROM_PTR(&pb_type_Speaker_play_pause_mp3_obj) },
-    { MP_ROM_QSTR(MP_QSTR_mp3_count), MP_ROM_PTR(&pb_type_Speaker_mp3_count_obj) },
     { MP_ROM_QSTR(MP_QSTR_store_mp3), MP_ROM_PTR(&pb_type_Speaker_store_mp3_obj) },
     { MP_ROM_QSTR(MP_QSTR_mp3_playing), MP_ROM_PTR(&pb_type_Speaker_mp3_playing_obj) },
     { MP_ROM_QSTR(MP_QSTR_mp3_paused), MP_ROM_PTR(&pb_type_Speaker_mp3_paused_obj) },

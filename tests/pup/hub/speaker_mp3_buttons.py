@@ -17,6 +17,12 @@ REPEAT = 25         # time between repeats after that
 POLL = 5            # how often to check the buttons
 
 hub = PrimeHub()
+
+# The song, and how it plays, are chosen once. They stay chosen after this
+# program ends, which is how the song keeps playing into the next one.
+hub.speaker.select_mp3(0)
+hub.speaker.mp3_repeat(True)
+hub.speaker.mp3_persist(True)
 watch = StopWatch()
 
 held = 0
@@ -27,7 +33,7 @@ while True:
     pressed = hub.buttons.pressed()
 
     if Button.CENTER in pressed:
-        playing = hub.speaker.play_pause_mp3(loop=True, persist=True)
+        playing = hub.speaker.play_pause_mp3()
         print("playing" if playing else "paused")
         # Wait for the release, so one press is one action.
         while Button.CENTER in hub.buttons.pressed():

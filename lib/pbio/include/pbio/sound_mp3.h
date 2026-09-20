@@ -22,6 +22,11 @@
 #if PBIO_CONFIG_SOUND_MP3
 
 /**
+ * Longest path of a song file, including the terminating null.
+ */
+#define PBIO_SOUND_MP3_PATH_SIZE (64)
+
+/**
  * Playback and timing statistics.
  */
 typedef struct {
@@ -62,9 +67,29 @@ typedef struct {
 
 size_t pbio_sound_mp3_get_context_size(void);
 
-pbio_error_t pbio_sound_mp3_start(void *context, const uint8_t *data, uint32_t size, bool loop, bool persist);
+void pbio_sound_mp3_select(const uint8_t *data, uint32_t size, uint32_t index);
 
-pbio_error_t pbio_sound_mp3_start_file(void *context, const char *path, bool loop, bool persist);
+pbio_error_t pbio_sound_mp3_select_file(const char *path);
+
+bool pbio_sound_mp3_is_selected(void);
+
+const char *pbio_sound_mp3_get_selected_path(void);
+
+uint32_t pbio_sound_mp3_get_selected_index(void);
+
+void pbio_sound_mp3_set_repeat(bool repeat);
+
+bool pbio_sound_mp3_get_repeat(void);
+
+void pbio_sound_mp3_set_persist(bool persist);
+
+bool pbio_sound_mp3_get_persist(void);
+
+pbio_error_t pbio_sound_mp3_play(void *context);
+
+pbio_error_t pbio_sound_mp3_start(void *context, const uint8_t *data, uint32_t size);
+
+pbio_error_t pbio_sound_mp3_start_file(void *context, const char *path);
 
 void pbio_sound_mp3_stop(void);
 

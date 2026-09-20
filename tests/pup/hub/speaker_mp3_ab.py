@@ -21,16 +21,20 @@ VOLUME = 40
 hub = PrimeHub()
 hub.speaker.volume(VOLUME)
 
-print("{} songs embedded. Left = first, right = second, center = stop.".format(hub.speaker.mp3_count()))
+print("Songs: {}. Left = first, right = second, center = stop.".format(hub.speaker.mp3_songs()))
+
+hub.speaker.mp3_repeat(True)
 
 while True:
     pressed = hub.buttons.pressed()
 
     if Button.LEFT in pressed:
-        hub.speaker.play_mp3(song=0, loop=True)
+        hub.speaker.select_mp3(0)
+        hub.speaker.play_mp3()
         print("song 0")
     elif Button.RIGHT in pressed:
-        hub.speaker.play_mp3(song=1, loop=True)
+        hub.speaker.select_mp3(1)
+        hub.speaker.play_mp3()
         print("song 1")
     elif Button.CENTER in pressed:
         hub.speaker.stop_mp3()

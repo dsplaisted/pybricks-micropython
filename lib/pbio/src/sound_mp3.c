@@ -108,6 +108,147 @@ static struct {
 } player;
 
 static pbio_os_process_t pbio_sound_mp3_process;
+/**
+ * Which song to play and how, kept apart from the player so that it outlives
+ * both a song and the program that chose it.
+ */
+static struct {
+    /** Whether a song has been chosen. */
+    bool valid;
+    /** Whether the song is a file instead of one built into the firmware. */
+    bool from_file;
+    /** The song built into the firmware, and which one it is. */
+    const uint8_t *data;
+    uint32_t size;
+    uint32_t index;
+    /** The file on the external flash. */
+    char path[PBIO_SOUND_MP3_PATH_SIZE];
+    /** Whether the song starts again when it ends. */
+    bool repeat;
+    /** Whether playback continues when the program that started it ends. */
+    bool persist;
+} selection;
+
+/**
+ * Chooses a song that is built into the firmware.
+ *
+ * @param [in]  data    The MP3 data.
+ * @param [in]  size    Size of @p data.
+ * @param [in]  index   Which song it is, to report back.
+ */
+void pbio_sound_mp3_select(const uint8_t *data, uint32_t size, uint32_t index) {
+    selection.valid = true;
+    selection.from_file = false;
+    selection.data = data;
+    selection.size = size;
+    selection.index = index;
+}
+
+/**
+ * Chooses a song from a file on the external flash.
+ *
+ * @param [in]  path    The file to play.
+ * @return              ::PBIO_ERROR_INVALID_ARG if the path is too long,
+ *                      the error from reading the file if it cannot be read,
+ *                      otherwise ::PBIO_SUCCESS.
+ */
+pbio_error_t pbio_sound_mp3_select_file(const char *path) {
+
+    uint32_t length = strlen(path);
+    if (length == 0 || length >= sizeof(selection.path)) {
+        return PBIO_ERROR_INVALID_ARG;
+    }
+
+    // Reading the start of the file says whether it can be played at all,
+    // which is friendlier to find out now than when it is due to play.
+    uint8_t probe;
+    uint32_t size_read;
+    pbio_error_t err = pbio_flash_fs_read_file(path, 0, &probe, sizeof(probe), &size_read);
+    if (err != PBIO_SUCCESS) {
+        return err;
+    }
+
+    strcpy(selection.path, path);
+    selection.valid = true;
+    selection.from_file = true;
+    return PBIO_SUCCESS;
+}
+
+/**
+ * Gets whether a song has been chosen.
+ */
+bool pbio_sound_mp3_is_selected(void) {
+    return selection.valid;
+}
+
+/**
+ * Gets the file that was chosen, or @c NULL when the song is built into the
+ * firmware or nothing is chosen.
+ */
+const char *pbio_sound_mp3_get_selected_path(void) {
+    return selection.valid && selection.from_file ? selection.path : NULL;
+}
+
+/**
+ * Gets which song built into the firmware was chosen. Only meaningful when
+ * ::pbio_sound_mp3_get_selected_path returns @c NULL.
+ */
+uint32_t pbio_sound_mp3_get_selected_index(void) {
+    return selection.index;
+}
+
+/**
+ * Sets whether the song starts again when it ends. Takes effect right away,
+ * so it can be turned off while the last time through is playing.
+ */
+void pbio_sound_mp3_set_repeat(bool repeat) {
+    selection.repeat = repeat;
+    player.loop = repeat;
+}
+
+/**
+ * Gets whether the song starts again when it ends.
+ */
+bool pbio_sound_mp3_get_repeat(void) {
+    return selection.repeat;
+}
+
+/**
+ * Sets whether playback continues when the program that started it ends.
+ * Takes effect the next time a song starts, since where the decoder keeps
+ * its memory depends on it.
+ */
+void pbio_sound_mp3_set_persist(bool persist) {
+    selection.persist = persist;
+}
+
+/**
+ * Gets whether playback continues when the program that started it ends.
+ */
+bool pbio_sound_mp3_get_persist(void) {
+    return selection.persist;
+}
+
+/**
+ * Plays the chosen song from the beginning.
+ *
+ * @param [in]  context     Memory of ::pbio_sound_mp3_get_context_size bytes.
+ * @return                  ::PBIO_ERROR_INVALID_OP if no song is chosen,
+ *                          otherwise what starting it gives.
+ */
+pbio_error_t pbio_sound_mp3_play(void *context) {
+
+    if (!selection.valid) {
+        return PBIO_ERROR_INVALID_OP;
+    }
+
+    if (selection.from_file) {
+        return pbio_sound_mp3_start_file(context, selection.path);
+    }
+
+    return pbio_sound_mp3_start(context, selection.data, selection.size);
+}
+
 
 /**
  * Gets the size of the memory that must be passed to ::pbio_sound_mp3_start.
@@ -454,7 +595,7 @@ static pbio_error_t pbio_sound_mp3_start_common(void *context, bool loop, bool p
 /**
  * Starts playing MP3 data from memory.
  */
-pbio_error_t pbio_sound_mp3_start(void *context, const uint8_t *data, uint32_t size, bool loop, bool persist) {
+pbio_error_t pbio_sound_mp3_start(void *context, const uint8_t *data, uint32_t size) {
 
     pbio_sound_mp3_stop();
 
@@ -462,7 +603,7 @@ pbio_error_t pbio_sound_mp3_start(void *context, const uint8_t *data, uint32_t s
     player.data = data;
     player.size = size;
 
-    return pbio_sound_mp3_start_common(context, loop, persist);
+    return pbio_sound_mp3_start_common(context, selection.repeat, selection.persist);
 }
 
 /**
@@ -473,13 +614,11 @@ pbio_error_t pbio_sound_mp3_start(void *context, const uint8_t *data, uint32_t s
  *
  * @param [in]  context     Memory of ::pbio_sound_mp3_get_context_size bytes.
  * @param [in]  path        The file to play.
- * @param [in]  loop        Whether to repeat from the start at the end.
- * @param [in]  persist     Whether to keep playing when the program ends.
  * @return                  ::PBIO_ERROR_FAILED if the file can't be opened,
  *                          ::PBIO_ERROR_INVALID_ARG if it has no audio,
  *                          otherwise ::PBIO_SUCCESS.
  */
-pbio_error_t pbio_sound_mp3_start_file(void *context, const char *path, bool loop, bool persist) {
+pbio_error_t pbio_sound_mp3_start_file(void *context, const char *path) {
 
     pbio_sound_mp3_stop();
 
@@ -493,7 +632,7 @@ pbio_error_t pbio_sound_mp3_start_file(void *context, const char *path, bool loo
     }
     player.size = size;
 
-    err = pbio_sound_mp3_start_common(context, loop, persist);
+    err = pbio_sound_mp3_start_common(context, selection.repeat, selection.persist);
     if (err != PBIO_SUCCESS) {
         pbio_flash_fs_stream_close();
     }

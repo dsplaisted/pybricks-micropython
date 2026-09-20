@@ -48,7 +48,9 @@ if SONG_PATH not in names:
 hub.speaker.volume(VOLUME)
 
 print("Playing {} from the flash...".format(SONG_PATH))
-hub.speaker.play_mp3_file(SONG_PATH, loop=True)
+hub.speaker.select_mp3(SONG_PATH)
+hub.speaker.mp3_repeat(True)
+hub.speaker.play_mp3()
 
 s = hub.speaker.mp3_stats(reset=True)
 print(

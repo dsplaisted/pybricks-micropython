@@ -76,6 +76,7 @@ print("Benchmark without audio...")
 base = benchmark(5000)
 
 hub.speaker.volume(VOLUME)
+hub.speaker.select_mp3(0)
 hub.speaker.play_mp3()
 s = hub.speaker.mp3_stats()
 print(
