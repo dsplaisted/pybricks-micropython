@@ -4,9 +4,9 @@ Hardware Module: Prime Hub or Inventor Hub, with firmware built with PB_MP3.
 Description: Plays a song from a file on the external flash, rather than
 from the firmware.
 
-Stores a song embedded in the firmware as a file first, if it is not there
-yet. Then plays it and reports the same timings as speaker_mp3.py, so the
-cost of reading from the flash can be compared with playing from memory.
+Upload a song to the hub first, then run this. It reports the same timings
+as speaker_mp3.py, so the cost of reading from the flash can be compared
+with playing from memory.
 """
 
 from pybricks.hubs import PrimeHub
@@ -38,13 +38,14 @@ def report(phase):
     print("  underruns:", s["underruns"])
 
 
-# Store the song if it is not on the flash yet. The folder is made as
-# needed, so this works on a hub that has never had a song on it.
-if not [song for song in hub.speaker.mp3_songs() if str(song).endswith(SONG_NAME)]:
-    print("Storing {}...".format(SONG_NAME))
-    watch.reset()
-    hub.speaker.store_mp3(0, SONG_NAME)
-    print("Stored in {} ms.".format(watch.time()))
+# The song has to be on the hub already. Put it there with:
+#
+#     pybricksdev files put ble song.mp3 /pybricks/songs/pybricks_song.mp3
+#
+songs = hub.speaker.mp3_songs()
+if not [song for song in songs if str(song).endswith(SONG_NAME)]:
+    print("{} is not on the hub. Songs found: {}".format(SONG_NAME, songs))
+    raise SystemExit
 
 hub.speaker.volume(VOLUME)
 

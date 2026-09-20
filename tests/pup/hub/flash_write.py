@@ -5,8 +5,8 @@ Description: Writes to the file system on the external flash, which is
 shared with the firmware of LEGO.
 
 First writes a small file, reads it back, checks it and deletes it again.
-Set STORE_SONG to also copy a song embedded in the firmware to a file,
-which writes a few hundred kilobytes and reports how long that takes.
+Set BIG_WRITE to also write a few hundred kilobytes, the size of a song,
+and report how fast that goes.
 
 Writing is limited to the file system area, so the programs and settings
 stored by Pybricks itself cannot be touched by this.
@@ -19,10 +19,11 @@ KB = 1024
 MB = 1024 * KB
 
 TEST_PATH = "/pybricks_test.bin"
-SONG_PATH = "/pybricks/songs/pybricks_song.mp3"
+BIG_PATH = "/pybricks/songs/pybricks_test_big.bin"
 
-# Set to True to also store a song. This writes a few hundred kilobytes.
-STORE_SONG = False
+# Set to True to also write a big file, about the size of a song.
+BIG_WRITE = False
+BIG_SIZE = 128 * KB
 
 hub = PrimeHub()
 watch = StopWatch()
@@ -58,27 +59,25 @@ print("After deleting: {}".format(names))
 
 show_usage("After")
 
-if STORE_SONG:
-    size = None
+if BIG_WRITE:
     print()
-    print("Storing song 0 as {}...".format(SONG_PATH))
+    print("Writing {:.0f} KB to {}...".format(BIG_SIZE / KB, BIG_PATH))
+
+    # The folder is made as needed, so this also checks that a file can be
+    # written somewhere that does not exist yet.
+    big = data * (BIG_SIZE // len(data))
     watch.reset()
-    hub.speaker.store_mp3(0, SONG_PATH)
+    hub.system.flash_write_file(BIG_PATH, big)
     elapsed = watch.time()
 
-    for name, file_size, is_dir in hub.system.flash_files("/"):
-        if SONG_PATH.endswith("/" + name):
-            size = file_size
-
-    if size is None:
-        print("The song is not there. Something went wrong.")
-    else:
-        print(
-            "Stored {:.1f} KB in {} ms ({:.0f} KB/s).".format(
-                size / KB, elapsed, size / KB / (elapsed / 1000)
-            )
+    print(
+        "Wrote {:.1f} KB in {} ms ({:.0f} KB/s).".format(
+            len(big) / KB, elapsed, len(big) / KB / (elapsed / 1000)
         )
-    show_usage("After storing")
+    )
+
+    hub.system.flash_remove(BIG_PATH)
+    show_usage("After the big write")
 
 print()
 print("Done. Run flash_files.py to check that the files of LEGO are intact.")

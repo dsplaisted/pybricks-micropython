@@ -524,28 +524,6 @@ static MP_DEFINE_CONST_FUN_OBJ_1(pb_type_Speaker_resume_mp3_obj, pb_type_Speaker
 // Experimental: copies a song embedded in the firmware to the external
 // flash, so that playing from a file can be tried before there is a way to
 // upload songs to the hub.
-static mp_obj_t pb_type_Speaker_store_mp3(mp_obj_t self_in, mp_obj_t song_in, mp_obj_t path_in) {
-
-    uint32_t index = mp_obj_get_int(song_in);
-    if (index >= pb_mp3_song_count) {
-        mp_raise_ValueError(MP_ERROR_TEXT("no such song"));
-    }
-
-    char path[PBIO_SOUND_MP3_PATH_SIZE];
-    pb_assert(pbio_sound_mp3_resolve_path(mp_obj_str_get_str(path_in), path, sizeof(path)));
-
-    pbio_sound_mp3_stop();
-
-    pb_assert(pbio_flash_fs_mount());
-    pbio_error_t err = pbio_flash_fs_write_file(path,
-        pb_mp3_song_data[index], pb_mp3_song_size[index]);
-    pbio_flash_fs_unmount();
-    pb_assert(err);
-
-    return mp_const_none;
-}
-static MP_DEFINE_CONST_FUN_OBJ_3(pb_type_Speaker_store_mp3_obj, pb_type_Speaker_store_mp3);
-
 static mp_obj_t pb_type_Speaker_mp3_playing(mp_obj_t self_in) {
     return mp_obj_new_bool(pbio_sound_mp3_is_playing());
 }
@@ -637,7 +615,6 @@ static const mp_rom_map_elem_t pb_type_Speaker_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_mp3_persist), MP_ROM_PTR(&pb_type_Speaker_mp3_persist_obj) },
     { MP_ROM_QSTR(MP_QSTR_play_mp3), MP_ROM_PTR(&pb_type_Speaker_play_mp3_obj) },
     { MP_ROM_QSTR(MP_QSTR_play_pause_mp3), MP_ROM_PTR(&pb_type_Speaker_play_pause_mp3_obj) },
-    { MP_ROM_QSTR(MP_QSTR_store_mp3), MP_ROM_PTR(&pb_type_Speaker_store_mp3_obj) },
     { MP_ROM_QSTR(MP_QSTR_mp3_playing), MP_ROM_PTR(&pb_type_Speaker_mp3_playing_obj) },
     { MP_ROM_QSTR(MP_QSTR_mp3_paused), MP_ROM_PTR(&pb_type_Speaker_mp3_paused_obj) },
     { MP_ROM_QSTR(MP_QSTR_mp3_stopped), MP_ROM_PTR(&pb_type_Speaker_mp3_stopped_obj) },
