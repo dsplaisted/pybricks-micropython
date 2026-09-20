@@ -77,26 +77,34 @@ Read with `hub.system.flash_read()` on a hub that had been used normally:
 - Sampling 32 bytes every 64 KB across the chip, **331 of 512 samples hold
   data, right up to 31.9 MB**.
 
-The second finding kills the idea of hiding at the end of the chip.
-littlefs spreads its blocks over the whole device by design, for wear
-levelling, so there is no quiet tail to borrow. It also never erases blocks
-it has stopped using, so the 65 % figure overstates live data, but either
-way the file system may allocate anywhere, including any region we pick.
+Mounting that file system and asking it what it holds gives a very
+different picture: **0.05 MB in use of 31 MB**, with a handful of small
+files. The 65 % of samples holding data is stale: littlefs does not erase
+blocks when it stops using them, so most of what the sampling found is
+rubbish left behind by earlier use.
 
-### The remaining approach
+So the chip is nearly empty, and the file system may still allocate
+anywhere in it, including any region we might pick for ourselves.
 
-Take the region and make the file system cleanly absent:
+### Better: share the file system
 
-1. Pick a region inside the 1 MB to 32 MB area.
-2. When it is first claimed, **erase the two superblocks at 1 MB** as well.
-   Without a superblock, nothing mounts, so LEGO's firmware takes the
-   "create a fresh file system" path rather than the ambiguous one.
-3. Document that songs and LEGO's data cannot survive each other: putting a
-   song on the hub discards what LEGO's firmware stored, and running LEGO's
-   firmware again reformats the chip and discards the songs.
+Taking a region and overwriting the file system, as described above, is not
+necessary. Songs can be ordinary files in the file system that is already
+there, which keeps both firmwares working and destroys nothing.
 
-The firmware must not touch anything above 1 MB until the user asks it to
-store a song, so that installing it does not by itself destroy anything.
+littlefs is in the MicroPython submodule at `micropython/lib/littlefs`, so
+the firmware can mount the same file system. Compiled for reading only, it
+costs about 4 KB of firmware and 288 bytes of buffers, because only the
+read paths are linked in.
+
+What this gives up: LEGO's firmware may delete or overwrite the songs, for
+instance when the app resets the hub, and it allocates from the same free
+space. Neither matters for a hub used with Pybricks.
+
+The one real cost is that littlefs has a synchronous interface while the
+flash driver is asynchronous, so its reads have to be waited out. Keeping
+each read to about 1 KB puts that at roughly 0.35 ms, which is less than
+one decode step, as long as reading is done in its own step.
 
 ## Other considerations
 
