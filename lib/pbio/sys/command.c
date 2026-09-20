@@ -82,16 +82,30 @@ pbio_pybricks_error_t pbsys_command(const uint8_t *data, uint32_t size) {
             }
 
             switch (data[1]) {
-                case PBIO_FLASH_FILE_OPEN: {
+                case PBIO_FLASH_FILE_OPEN:
+                case PBIO_FLASH_FILE_REMOVE: {
                     // The name is not null terminated on the wire.
-                    static char path[64];
+                    static char path[PBIO_FLASH_FS_PATH_SIZE];
                     uint32_t len = size - 2;
                     if (len == 0 || len >= sizeof(path)) {
                         return PBIO_PYBRICKS_ERROR_VALUE_NOT_ALLOWED;
                     }
                     memcpy(path, &data[2], len);
                     path[len] = '\0';
-                    return pbio_pybricks_error_from_pbio_error(pbio_flash_fs_write_open(path));
+
+                    if (data[1] == PBIO_FLASH_FILE_OPEN) {
+                        return pbio_pybricks_error_from_pbio_error(pbio_flash_fs_write_open(path));
+                    }
+
+                    // Deleting holds the file system open only for as long as
+                    // it takes, unlike writing, which keeps it open in between
+                    // the messages that make up the file.
+                    pbio_error_t err = pbio_flash_fs_mount();
+                    if (err == PBIO_SUCCESS) {
+                        err = pbio_flash_fs_remove(path);
+                        pbio_flash_fs_unmount();
+                    }
+                    return pbio_pybricks_error_from_pbio_error(err);
                 }
                 case PBIO_FLASH_FILE_APPEND:
                     return pbio_pybricks_error_from_pbio_error(

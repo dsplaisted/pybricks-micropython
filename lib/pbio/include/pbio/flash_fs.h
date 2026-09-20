@@ -43,6 +43,8 @@ enum {
     PBIO_FLASH_FILE_APPEND = 1,
     /** Closes the file. */
     PBIO_FLASH_FILE_CLOSE = 2,
+    /** Deletes the file, with the name as the payload. */
+    PBIO_FLASH_FILE_REMOVE = 3,
 };
 
 /**
