@@ -117,7 +117,11 @@ def show_levels():
             # after it has been quiet for a while rather than at once.
             loudest[i] = loudest[i] * 0.95 + levels[i] * 0.05
 
-    floor = max(loudest) / 10
+    # How far below the loudest a column may be measured against its own
+    # peak. Songs vary from eight to forty times quieter at the top of the
+    # range than the bottom, so holding back at ten would keep the right
+    # hand columns short whatever they did.
+    floor = max(loudest) / 50
     rows = []
     for row in range(5):
         # The top row is lit only by the tallest bars.
