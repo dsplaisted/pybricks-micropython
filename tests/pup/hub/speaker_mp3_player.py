@@ -44,7 +44,7 @@ DRAW_EVERY = 40  # how often to redraw the bars
 # across the songs on the hub. Dividing by this lets the columns be compared
 # with each other, so the display shows which part the music is in rather
 # than each column against its own past.
-BAND_WEIGHT = (1.0, 2.1, 5.5, 15.1, 63.1)
+BAND_WEIGHT = (1.0, 2.6, 6.8, 21.6, 83.8)
 
 # Each row up is twice the sound of the row below, which is closer to how
 # loudness is heard than an even split would be.
