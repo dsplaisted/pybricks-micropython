@@ -589,10 +589,30 @@ static pbio_error_t pbio_sound_mp3_start_common(void *context, bool loop, bool p
 }
 
 /**
+ * Tests whether a frame carries a tag saying how the file was made, rather
+ * than any music. Encoders put one at the start of a file, and it is not
+ * always at the rate the music is, so it must not be measured by.
+ *
+ * @param [in]  frame   The start of the frame.
+ * @param [in]  size    How much of the frame is there.
+ */
+static bool pbio_sound_mp3_frame_has_tag(const uint8_t *frame, uint32_t size) {
+
+    // The tag sits a little way into the frame, past the header.
+    for (uint32_t i = 0; i + 4 <= size && i < 64; i++) {
+        if (memcmp(&frame[i], "Xing", 4) == 0 || memcmp(&frame[i], "Info", 4) == 0) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+/**
  * Works out how far into the data a moment in the song is.
  *
  * The frames of a song encoded at a constant rate are all the same size, so
- * how dense the first one is says where any moment lives. A song encoded at a
+ * how dense one of them is says where any moment lives. A song encoded at a
  * varying rate would only be found approximately this way.
  *
  * @param [in]  context     The decoder memory, used for the scratch space.
@@ -612,12 +632,35 @@ static uint32_t pbio_sound_mp3_offset_of(void *context, const uint8_t *data, uin
     mp3dec_frame_info_t info = { 0 };
     mp3dec_decode_frame(&ctx->decoder, data, size, NULL, &info);
 
+    if (info.frame_bytes <= 0) {
+        return 0;
+    }
+
+    // Where the music starts, which is not the start of the file when there
+    // is anything in front of it.
+    uint32_t music_start = info.frame_offset;
+
+    if (pbio_sound_mp3_frame_has_tag(data + info.frame_offset, info.frame_bytes - info.frame_offset)) {
+        // That frame was the tag, so the music and its rate are in the next.
+        music_start = info.frame_bytes;
+
+        mp3dec_frame_info_t next = { 0 };
+        mp3dec_decode_frame(&ctx->decoder, data + music_start, size - music_start, NULL, &next);
+
+        if (next.frame_bytes <= 0) {
+            return 0;
+        }
+
+        music_start += next.frame_offset;
+        info = next;
+    }
+
     if (info.bitrate_kbps == 0) {
         return 0;
     }
 
     // Bits per second over eight is bytes per millisecond.
-    return start_ms * info.bitrate_kbps / 8;
+    return music_start + start_ms * info.bitrate_kbps / 8;
 }
 
 /**
