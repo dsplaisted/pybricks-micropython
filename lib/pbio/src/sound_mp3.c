@@ -57,10 +57,12 @@ static void *pbio_sound_mp3_scratch;
 #define GRANULE_BANDS (32)
 #define GRANULE_BAND_SAMPLES (18)
 
-// Which bands each part of the display covers. Hearing is closer to
-// logarithmic than linear, so the low parts get a band each and the high
-// parts share.
-static const uint8_t pbio_sound_mp3_band_end[PBIO_SOUND_MP3_LEVELS] = { 1, 2, 4, 8, 32 };
+// Which bands each part of the frequency range covers. Hearing is closer to
+// logarithmic than linear, so the low parts cover few bands and the high
+// parts many. Nothing is measured above band 24, near 16 kHz, because that
+// is where encoders stop keeping anything: including the empty bands above
+// it would only water down what the top part reports.
+static const uint8_t pbio_sound_mp3_band_end[PBIO_SOUND_MP3_LEVELS] = { 1, 3, 6, 12, 24 };
 
 #define WINDOW_MIN_DECODE (2048)
 

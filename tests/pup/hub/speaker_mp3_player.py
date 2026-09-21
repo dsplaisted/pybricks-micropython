@@ -40,6 +40,16 @@ VOLUME_SHOWN = 1000  # how long the volume stays on the display
 NUMBER_SHOWN = 1200  # how long the song number stays after it changes
 DRAW_EVERY = 40  # how often to redraw the bars
 
+# What an average song holds in each part of the frequency range, measured
+# across the songs on the hub. Dividing by this lets the columns be compared
+# with each other, so the display shows which part the music is in rather
+# than each column against its own past.
+BAND_WEIGHT = (1.0, 2.1, 5.5, 15.1, 63.1)
+
+# Each row up is twice the sound of the row below, which is closer to how
+# loudness is heard than an even split would be.
+ROW_RATIO = (0.0625, 0.125, 0.25, 0.5, 1.0)
+
 hub = PrimeHub()
 
 # The center button stops the program by default, which would end the player
@@ -65,9 +75,9 @@ volume_until = 0
 number_until = 0
 next_draw = 0
 
-# The loudest each part of the range has been lately, so that the bars fill
-# the display whatever the song and whatever it was encoded from.
-loudest = [1, 1, 1, 1, 1]
+# The loudest the music has been lately, so that the bars fill the display
+# whatever the song and whatever it was encoded from.
+loudest = 1
 
 
 def track_of(song):
@@ -105,32 +115,27 @@ def show_levels():
 
     levels = hub.speaker.mp3_levels()
 
-    # Music holds far less at the top of the range than at the bottom, so a
-    # single scale would leave the right hand columns dark. Each column is
-    # measured against its own loudest instead, and the quietest columns are
-    # held back so that near silence does not fill them.
-    for i in range(5):
-        if levels[i] > loudest[i]:
-            loudest[i] = levels[i]
-        else:
-            # Come down slowly, so a quiet passage fills the display only
-            # after it has been quiet for a while rather than at once.
-            loudest[i] = loudest[i] * 0.95 + levels[i] * 0.05
+    # Music holds far less at the top of the range than at the bottom, by
+    # about sixty times, so the parts are weighed against what an average
+    # song holds in each. One scale then serves the whole display, which is
+    # what lets the columns be read against each other.
+    weighted = [levels[i] * BAND_WEIGHT[i] for i in range(5)]
 
-    # How far below the loudest a column may be measured against its own
-    # peak. Songs vary from eight to forty times quieter at the top of the
-    # range than the bottom, so holding back at ten would keep the right
-    # hand columns short whatever they did.
-    floor = max(loudest) / 50
+    top = max(weighted)
+    if top > loudest:
+        loudest = top
+    else:
+        # Come down over a few seconds, so that a quiet passage looks quiet
+        # rather than being scaled straight back up to full.
+        loudest = loudest * 0.99 + top * 0.01
+    if loudest < 1:
+        loudest = 1
+
     rows = []
     for row in range(5):
-        # The top row is lit only by the tallest bars.
-        height = 5 - row
-        lit = []
-        for i in range(5):
-            scale = loudest[i] if loudest[i] > floor else floor
-            lit.append(100 if scale > 0 and levels[i] * 5 / scale >= height else 0)
-        rows.append(lit)
+        # The top row asks for the most, each row below it for half again.
+        needed = loudest * ROW_RATIO[4 - row]
+        rows.append([100 if weighted[i] >= needed else 0 for i in range(5)])
 
     hub.display.icon(rows)
     shown = None
