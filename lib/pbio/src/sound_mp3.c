@@ -52,6 +52,16 @@ static void *pbio_sound_mp3_scratch;
 // Samples one granule of a frame makes, for each channel.
 #define GRANULE_SAMPLES (576)
 
+// A granule holds these samples as 32 bands of frequency, 18 samples each,
+// which is what the bands shown on the display are worked out from.
+#define GRANULE_BANDS (32)
+#define GRANULE_BAND_SAMPLES (18)
+
+// Which bands each part of the display covers. Hearing is closer to
+// logarithmic than linear, so the low parts get a band each and the high
+// parts share.
+static const uint8_t pbio_sound_mp3_band_end[PBIO_SOUND_MP3_LEVELS] = { 1, 2, 4, 8, 32 };
+
 #define WINDOW_MIN_DECODE (2048)
 
 // Number of samples in each half of the double buffer. This is how much
@@ -92,6 +102,8 @@ static struct {
     uint32_t granule;
     /** Channels of the current frame. */
     uint32_t frame_channels;
+    /** How loud each part of the frequency range is, for showing it. */
+    uint16_t levels[PBIO_SOUND_MP3_LEVELS];
     /** Number of decoded samples in the pcm buffer. */
     uint32_t pcm_count;
     /** Number of samples from the pcm buffer copied to the double buffer. */
@@ -456,6 +468,45 @@ static uint32_t pbio_sound_mp3_begin_frame(const uint8_t *data, uint32_t size) {
 }
 
 /**
+ * Works out how loud each part of the frequency range is, from the bands a
+ * granule is made of before they are turned back into sound.
+ *
+ * @param [in]  granule     The granule of the first channel.
+ */
+static void pbio_sound_mp3_measure_levels(const float *granule) {
+
+    uint32_t band = 0;
+
+    for (uint32_t i = 0; i < PBIO_SOUND_MP3_LEVELS; i++) {
+
+        float total = 0;
+        uint32_t count = 0;
+
+        for (; band < pbio_sound_mp3_band_end[i]; band++) {
+            for (uint32_t t = 0; t < GRANULE_BAND_SAMPLES; t++) {
+                float value = granule[band * GRANULE_BAND_SAMPLES + t];
+                total += value < 0 ? -value : value;
+            }
+            count += GRANULE_BAND_SAMPLES;
+        }
+
+        uint32_t level = (uint32_t)(total / count);
+        player.levels[i] = level > UINT16_MAX ? UINT16_MAX : level;
+    }
+}
+
+/**
+ * Gets how loud each part of the frequency range is, from quiet to loud, low
+ * to high. The numbers are the size of the sound in each part, not scaled to
+ * anything, so whoever shows them decides what counts as full.
+ *
+ * @param [out] levels  Space for ::PBIO_SOUND_MP3_LEVELS numbers.
+ */
+void pbio_sound_mp3_get_levels(uint16_t *levels) {
+    memcpy(levels, player.levels, sizeof(player.levels));
+}
+
+/**
  * Decodes one granule of the frame that was prepared, which is 576 samples
  * for each channel.
  *
@@ -469,6 +520,11 @@ static uint32_t pbio_sound_mp3_decode_granule(void) {
 
     memset(scratch->grbuf[0], 0, 576 * 2 * sizeof(float));
     L3_decode(dec, scratch, scratch->gr_info + player.granule * channels, channels);
+
+    // Turning the granule into sound reuses this memory, so how loud each
+    // part of the frequency range is has to be taken from it first.
+    pbio_sound_mp3_measure_levels(scratch->grbuf[0]);
+
     mp3d_synth_granule(dec->qmf_state, scratch->grbuf[0], 18, channels,
         player.ctx->pcm, scratch->syn[0]);
 
@@ -867,6 +923,8 @@ pbio_error_t pbio_sound_mp3_start_file(void *context, const char *path, uint32_t
  * Stops playing. After this, the context memory is no longer used.
  */
 void pbio_sound_mp3_stop(void) {
+
+    memset(player.levels, 0, sizeof(player.levels));
     pbio_sound_mp3_stop_streaming();
     pbio_sound_mp3_close_file();
     player.paused = false;

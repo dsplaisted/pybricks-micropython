@@ -36,6 +36,11 @@
 pbio_error_t pbio_sound_mp3_resolve_path(const char *path, char *buffer, size_t size);
 
 /**
+ * Parts of the frequency range that the loudness is reported for.
+ */
+#define PBIO_SOUND_MP3_LEVELS (5)
+
+/**
  * Playback and timing statistics.
  */
 typedef struct {
@@ -93,6 +98,8 @@ bool pbio_sound_mp3_get_persist(void);
 pbio_error_t pbio_sound_mp3_play(void *context, uint32_t start_ms);
 
 uint32_t pbio_sound_mp3_get_position(void);
+
+void pbio_sound_mp3_get_levels(uint16_t *levels);
 
 pbio_error_t pbio_sound_mp3_start_file(void *context, const char *path, uint32_t start_ms);
 

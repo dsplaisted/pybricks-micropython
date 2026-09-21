@@ -18,10 +18,12 @@ Songs named like "01 - Title-24k.mp3" and "01 - Title-96k.mp3" are the same
 song at different qualities. Moving between those carries on from the same
 moment instead of starting over, so the two can be compared by ear.
 
-The display shows the number of the song, and the volume while it is being
-changed. A volume of 100 shows as > because the display only holds two
-digits. The name of each song is printed as it is chosen, so it can be read
-in Pybricks Code; without that, go by the number.
+While a song plays the display shows how loud each part of the frequency
+range is, low notes on the left and high on the right. It shows the number
+of the song instead when the song changes or nothing is playing, and the
+volume while that is being changed. A volume of 100 shows as > because the
+display only holds two digits. The name of each song is printed as it is
+chosen, so it can be read in Pybricks Code; without that, go by the number.
 
 The music keeps playing after this program ends, and the song stays chosen,
 so starting the player again carries on from where it was.
@@ -35,6 +37,8 @@ FIRST_REPEAT = 250  # hold this long before the volume starts changing
 REPEAT = 25  # time between steps after that
 POLL = 5  # how often to check the buttons
 VOLUME_SHOWN = 1000  # how long the volume stays on the display
+NUMBER_SHOWN = 1200  # how long the song number stays after it changes
+DRAW_EVERY = 40  # how often to redraw the bars
 
 hub = PrimeHub()
 
@@ -58,6 +62,12 @@ watch = StopWatch()
 index = 0
 shown = None
 volume_until = 0
+number_until = 0
+next_draw = 0
+
+# The loudest the music has been lately, so that the bars fill the display
+# whatever the song and whatever it was encoded from.
+loudest = 1
 
 
 def track_of(song):
@@ -89,6 +99,32 @@ def show(value):
         shown = value
 
 
+def show_levels():
+    # A column for each part of the frequency range, filled from the bottom.
+    global loudest, shown
+
+    levels = hub.speaker.mp3_levels()
+
+    top = max(levels)
+    if top > loudest:
+        loudest = top
+    else:
+        # Come back down slowly, so a quiet passage fills the display only
+        # after it has been quiet for a while rather than at once.
+        loudest = loudest * 0.95 + top * 0.05
+    if loudest < 1:
+        loudest = 1
+
+    rows = []
+    for row in range(5):
+        # The top row is lit only by the tallest bars.
+        height = 5 - row
+        rows.append([100 if level * 5 / loudest >= height else 0 for level in levels])
+
+    hub.display.icon(rows)
+    shown = None
+
+
 def select(at, play):
     global index
 
@@ -102,7 +138,7 @@ def select(at, play):
 
     hub.speaker.select_mp3(song)
     print("{}. {}".format(index + 1, name_of(song)))
-    show(index + 1)
+    show_number()
 
     if play:
         # The same song at another quality carries on from the same moment,
@@ -113,6 +149,15 @@ def select(at, play):
         # Choosing a song does not disturb one that is paused, so carrying on
         # would bring back the old song rather than this one.
         hub.speaker.stop_mp3()
+
+
+def show_number():
+    # The number is worth seeing for a moment when the song changes, then the
+    # music itself is more interesting.
+    global number_until
+
+    show(index + 1)
+    number_until = watch.time() + NUMBER_SHOWN
 
 
 def set_volume(value):
@@ -184,10 +229,17 @@ while True:
         set_volume(hub.speaker.volume() + step)
         due = watch.time() + REPEAT
 
-    # The song number comes back once the volume has been read.
+    # The volume, then the song number, then the music itself.
     if volume_until and watch.time() > volume_until:
         volume_until = 0
-        show(index + 1)
+        show_number()
+
+    if not volume_until and watch.time() > number_until and watch.time() >= next_draw:
+        next_draw = watch.time() + DRAW_EVERY
+        if hub.speaker.mp3_playing():
+            show_levels()
+        else:
+            show(index + 1)
 
     # Nothing says when a song ends, so the player watches for it and goes on
     # to the next one.

@@ -499,6 +499,22 @@ static mp_obj_t pb_type_Speaker_play_mp3(size_t n_args, const mp_obj_t *args) {
 }
 static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(pb_type_Speaker_play_mp3_obj, 1, 2, pb_type_Speaker_play_mp3);
 
+// Experimental: gets how loud each part of the frequency range is, low to
+// high, for showing the music on the display.
+static mp_obj_t pb_type_Speaker_mp3_levels(mp_obj_t self_in) {
+
+    uint16_t levels[PBIO_SOUND_MP3_LEVELS];
+    pbio_sound_mp3_get_levels(levels);
+
+    mp_obj_t items[PBIO_SOUND_MP3_LEVELS];
+    for (uint32_t i = 0; i < PBIO_SOUND_MP3_LEVELS; i++) {
+        items[i] = mp_obj_new_int_from_uint(levels[i]);
+    }
+
+    return mp_obj_new_tuple(PBIO_SOUND_MP3_LEVELS, items);
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(pb_type_Speaker_mp3_levels_obj, pb_type_Speaker_mp3_levels);
+
 // Experimental: gets how far into the song playback has got, in milliseconds,
 // counting from the start of the song however it was started.
 static mp_obj_t pb_type_Speaker_mp3_position(mp_obj_t self_in) {
@@ -612,6 +628,7 @@ static const mp_rom_map_elem_t pb_type_Speaker_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_mp3_persist), MP_ROM_PTR(&pb_type_Speaker_mp3_persist_obj) },
     { MP_ROM_QSTR(MP_QSTR_play_mp3), MP_ROM_PTR(&pb_type_Speaker_play_mp3_obj) },
     { MP_ROM_QSTR(MP_QSTR_mp3_position), MP_ROM_PTR(&pb_type_Speaker_mp3_position_obj) },
+    { MP_ROM_QSTR(MP_QSTR_mp3_levels), MP_ROM_PTR(&pb_type_Speaker_mp3_levels_obj) },
     { MP_ROM_QSTR(MP_QSTR_play_pause_mp3), MP_ROM_PTR(&pb_type_Speaker_play_pause_mp3_obj) },
     { MP_ROM_QSTR(MP_QSTR_mp3_playing), MP_ROM_PTR(&pb_type_Speaker_mp3_playing_obj) },
     { MP_ROM_QSTR(MP_QSTR_mp3_paused), MP_ROM_PTR(&pb_type_Speaker_mp3_paused_obj) },
