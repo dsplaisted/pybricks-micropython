@@ -46,9 +46,15 @@ DRAW_EVERY = 40  # how often to redraw the bars
 # than each column against its own past.
 BAND_WEIGHT = (1.0, 2.6, 6.8, 21.6, 83.8)
 
-# Each row up is twice the sound of the row below, which is closer to how
-# loudness is heard than an even split would be.
-ROW_RATIO = (0.0625, 0.125, 0.25, 0.5, 1.0)
+# What a column must reach for each of its five rows, as a share of the
+# loudest the music has been lately.
+#
+# The top asks for six tenths of that rather than all of it, because only one
+# column can be the loudest at any moment: asking for all of it left the top
+# row dark on all but one redraw in a hundred. Each row below asks for half
+# again less than the one above. Halving, the usual step for loudness, packed
+# the music into too few rows and left the bottom two lit almost always.
+ROW_RATIO = (0.119, 0.178, 0.267, 0.400, 0.600)
 
 hub = PrimeHub()
 
