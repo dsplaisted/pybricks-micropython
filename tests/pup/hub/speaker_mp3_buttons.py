@@ -1,5 +1,5 @@
 """
-Hardware Module: Prime Hub or Inventor Hub, with firmware built with PB_MP3.
+Hardware Module: Prime Hub or Inventor Hub, with firmware built with PB_MP3=1.
 
 Description: Play/pause button for the embedded MP3, with volume control.
 
@@ -19,13 +19,19 @@ POLL = 5            # how often to check the buttons
 
 hub = PrimeHub()
 
+# The first song on the hub, whichever that is.
+songs = hub.speaker.mp3_songs()
+if not songs:
+    print("No songs on the hub. Upload one to /pybricks/songs/ first.")
+    raise SystemExit
+
 # The center button stops the program by default, so using it to pause would
 # end this one instead. The Bluetooth button stops it instead.
 hub.system.set_stop_button(Button.BLUETOOTH)
 
 # The song, and how it plays, are chosen once. They stay chosen after this
 # program ends, which is how the song keeps playing into the next one.
-hub.speaker.select_mp3(0)
+hub.speaker.select_mp3(songs[0])
 hub.speaker.mp3_repeat(True)
 hub.speaker.mp3_persist(True)
 watch = StopWatch()

@@ -71,13 +71,10 @@ typedef struct {
 
 static struct {
     pbio_sound_mp3_context_t *ctx;
-    /** Song data, when playing from memory. */
-    const uint8_t *data;
+    /** Size of the file being played. */
     uint32_t size;
-    /** Position of the next frame in the data. */
-    uint32_t pos;
-    /** Whether the song is read from a file instead of memory. */
-    bool from_file;
+    /** Whether a file is open, so that it gets closed when playing stops. */
+    bool file_open;
     /** Bytes of the file held in the window, and how much is used. */
     uint32_t window_size;
     uint32_t window_pos;
@@ -117,12 +114,6 @@ static pbio_os_process_t pbio_sound_mp3_process;
 static struct {
     /** Whether a song has been chosen. */
     bool valid;
-    /** Whether the song is a file instead of one built into the firmware. */
-    bool from_file;
-    /** The song built into the firmware, and which one it is. */
-    const uint8_t *data;
-    uint32_t size;
-    uint32_t index;
     /** The file on the external flash. */
     char path[PBIO_SOUND_MP3_PATH_SIZE];
     /** Whether the song starts again when it ends. */
@@ -130,21 +121,6 @@ static struct {
     /** Whether playback continues when the program that started it ends. */
     bool persist;
 } selection;
-
-/**
- * Chooses a song that is built into the firmware.
- *
- * @param [in]  data    The MP3 data.
- * @param [in]  size    Size of @p data.
- * @param [in]  index   Which song it is, to report back.
- */
-void pbio_sound_mp3_select(const uint8_t *data, uint32_t size, uint32_t index) {
-    selection.valid = true;
-    selection.from_file = false;
-    selection.data = data;
-    selection.size = size;
-    selection.index = index;
-}
 
 /**
  * Works out where a song lives.
@@ -215,7 +191,6 @@ pbio_error_t pbio_sound_mp3_select_file(const char *path) {
 
     strcpy(selection.path, full);
     selection.valid = true;
-    selection.from_file = true;
     return PBIO_SUCCESS;
 }
 
@@ -227,19 +202,10 @@ bool pbio_sound_mp3_is_selected(void) {
 }
 
 /**
- * Gets the file that was chosen, or @c NULL when the song is built into the
- * firmware or nothing is chosen.
+ * Gets the file that was chosen, or @c NULL when nothing is chosen.
  */
 const char *pbio_sound_mp3_get_selected_path(void) {
-    return selection.valid && selection.from_file ? selection.path : NULL;
-}
-
-/**
- * Gets which song built into the firmware was chosen. Only meaningful when
- * ::pbio_sound_mp3_get_selected_path returns @c NULL.
- */
-uint32_t pbio_sound_mp3_get_selected_index(void) {
-    return selection.index;
+    return selection.valid ? selection.path : NULL;
 }
 
 /**
@@ -288,11 +254,7 @@ pbio_error_t pbio_sound_mp3_play(void *context, uint32_t start_ms) {
         return PBIO_ERROR_INVALID_OP;
     }
 
-    if (selection.from_file) {
-        return pbio_sound_mp3_start_file(context, selection.path, start_ms);
-    }
-
-    return pbio_sound_mp3_start(context, selection.data, selection.size, start_ms);
+    return pbio_sound_mp3_start_file(context, selection.path, start_ms);
 }
 
 
@@ -312,23 +274,15 @@ size_t pbio_sound_mp3_get_context_size(void) {
  * @return                  The data.
  */
 static const uint8_t *pbio_sound_mp3_source(uint32_t *available) {
-    if (player.from_file) {
-        *available = player.window_size - player.window_pos;
-        return player.ctx->window + player.window_pos;
-    }
-    *available = player.size - player.pos;
-    return player.data + player.pos;
+    *available = player.window_size - player.window_pos;
+    return player.ctx->window + player.window_pos;
 }
 
 /**
  * Advances past data that has been decoded.
  */
 static void pbio_sound_mp3_consume(uint32_t size) {
-    if (player.from_file) {
-        player.window_pos += size;
-    } else {
-        player.pos += size;
-    }
+    player.window_pos += size;
 }
 
 /**
@@ -337,7 +291,7 @@ static void pbio_sound_mp3_consume(uint32_t size) {
 static bool pbio_sound_mp3_needs_data(void) {
     uint32_t available;
     pbio_sound_mp3_source(&available);
-    return player.from_file && !player.end_of_file && available < WINDOW_MIN_DECODE;
+    return !player.end_of_file && available < WINDOW_MIN_DECODE;
 }
 
 /**
@@ -396,11 +350,7 @@ static bool pbio_sound_mp3_decode_frame(void) {
         if (!player.loop) {
             return false;
         }
-        if (player.from_file) {
-            return pbio_sound_mp3_rewind();
-        }
-        player.pos = 0;
-        data = pbio_sound_mp3_source(&available);
+        return pbio_sound_mp3_rewind();
     }
 
     mp3dec_frame_info_t info;
@@ -410,13 +360,12 @@ static bool pbio_sound_mp3_decode_frame(void) {
 
     // No frames in the remaining data.
     if (info.frame_bytes == 0) {
-        bool was_at_start = player.from_file ? false : player.pos == 0;
         pbio_sound_mp3_consume(available);
-        // Try again from the start if looping, unless there are no frames at all.
-        if (!player.loop || was_at_start) {
+        // Try again from the start if looping.
+        if (!player.loop) {
             return false;
         }
-        return player.from_file ? pbio_sound_mp3_rewind() : (player.pos = 0, true);
+        return pbio_sound_mp3_rewind();
     }
 
     // Skip the frame and any data before it.
@@ -479,9 +428,9 @@ static void pbio_sound_mp3_fill_silence(void) {
 }
 
 static void pbio_sound_mp3_close_file(void) {
-    if (player.from_file) {
+    if (player.file_open) {
         pbio_flash_fs_stream_close();
-        player.from_file = false;
+        player.file_open = false;
     }
 }
 
@@ -672,34 +621,6 @@ static uint32_t pbio_sound_mp3_offset_of(void *context, const uint8_t *data, uin
 }
 
 /**
- * Starts playing MP3 data from memory.
- *
- * @param [in]  context     Memory of ::pbio_sound_mp3_get_context_size bytes.
- * @param [in]  data        The song.
- * @param [in]  size        Size of @p data.
- * @param [in]  start_ms    How far into the song to begin, or 0 for the start.
- *                          A moment past the end starts from the beginning.
- */
-pbio_error_t pbio_sound_mp3_start(void *context, const uint8_t *data, uint32_t size, uint32_t start_ms) {
-
-    pbio_sound_mp3_stop();
-
-    memset(&player, 0, sizeof(player));
-    player.data = data;
-    player.size = size;
-
-    if (start_ms > 0) {
-        uint32_t offset = pbio_sound_mp3_offset_of(context, data, size, start_ms);
-        if (offset > 0 && offset < size) {
-            player.pos = offset;
-            player.start_ms = start_ms;
-        }
-    }
-
-    return pbio_sound_mp3_start_common(context, selection.repeat, selection.persist);
-}
-
-/**
  * Starts playing an MP3 file on the external flash.
  *
  * The file stays open while it plays, so nothing else may write to the
@@ -718,7 +639,7 @@ pbio_error_t pbio_sound_mp3_start_file(void *context, const char *path, uint32_t
     pbio_sound_mp3_stop();
 
     memset(&player, 0, sizeof(player));
-    player.from_file = true;
+    player.file_open = true;
 
     uint32_t size;
     pbio_error_t err = pbio_flash_fs_stream_open(path, &size);

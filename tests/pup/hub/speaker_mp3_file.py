@@ -1,5 +1,5 @@
 """
-Hardware Module: Prime Hub or Inventor Hub, with firmware built with PB_MP3.
+Hardware Module: Prime Hub or Inventor Hub, with firmware built with PB_MP3=1.
 
 Description: Plays a song from a file on the external flash, rather than
 from the firmware.

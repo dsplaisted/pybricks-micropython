@@ -1,5 +1,5 @@
 """
-Hardware Module: Prime Hub or Inventor Hub, with firmware built with PB_MP3.
+Hardware Module: Prime Hub or Inventor Hub, with firmware built with PB_MP3=1.
 
 Description: Measures the timing of experimental MP3 playback.
 
@@ -20,6 +20,12 @@ VOLUME = 25
 WAIT_FOR_SONG_END = False
 
 hub = PrimeHub()
+
+# The first song on the hub, whichever that is.
+songs = hub.speaker.mp3_songs()
+if not songs:
+    print("No songs on the hub. Upload one to /pybricks/songs/ first.")
+    raise SystemExit
 watch = StopWatch()
 
 
@@ -76,7 +82,7 @@ print("Benchmark without audio...")
 base = benchmark(5000)
 
 hub.speaker.volume(VOLUME)
-hub.speaker.select_mp3(0)
+hub.speaker.select_mp3(songs[0])
 hub.speaker.play_mp3()
 s = hub.speaker.mp3_stats()
 print(

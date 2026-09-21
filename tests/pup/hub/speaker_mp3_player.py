@@ -1,5 +1,5 @@
 """
-Hardware Module: Prime Hub or Inventor Hub, with firmware built with PB_MP3.
+Hardware Module: Prime Hub or Inventor Hub, with firmware built with PB_MP3=1.
 
 Description: A music player for the hub.
 
@@ -72,11 +72,7 @@ def track_of(song):
 
 
 def name_of(song):
-    # A song on the flash is a path, and a song built into the firmware is a
-    # number. Only the last part of the path is worth reading out.
-    if not isinstance(song, str):
-        return "firmware song {}".format(song)
-
+    # Only the last part of the path is worth reading out.
     name = song.split("/")[-1]
     if name.endswith(".mp3"):
         name = name[:-4]

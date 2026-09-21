@@ -621,13 +621,12 @@ ifeq ($(PB_USB),1)
 CFLAGS += -DPBDRV_CONFIG_USB_CHARGE_ONLY=0
 endif
 
-# Experimental MP3 playback with Speaker.play_mp3(). Set PB_MP3 to one or more
-# MP3 files (paths without spaces) to embed them in the firmware. Run
-# "make clean" after adding or removing PB_MP3.
-ifneq ($(PB_MP3),)
+# Experimental MP3 playback with Speaker.play_mp3(). Set PB_MP3=1 to include
+# it. Songs are kept on the external flash and sent to the hub, so none are
+# built in. Run "make clean" after adding or removing PB_MP3.
+ifeq ($(PB_MP3),1)
 CFLAGS += -DPBIO_CONFIG_SOUND_MP3=1
 CFLAGS += -I$(PBTOP)/lib/minimp3
-PBIO_SRC_C += $(BUILD)/pb_mp3_data.c
 # Decoding speed matters more than size here.
 $(BUILD)/lib/pbio/src/sound_mp3.o: CFLAGS += -O2
 
@@ -802,10 +801,6 @@ $(BUILD)/font_mono_8x5_8.c: $(PBTOP)/lib/pbio/src/image/fonts/mono_8x5.png $(FON
 $(BUILD)/hmi_ev3_ui_credits.c: $(CREDITS_CONVERT)
 	$(ECHO) "Generating EV3 credits file"
 	$(Q)$(PYTHON) $(CREDITS_CONVERT) $(BUILD)
-
-$(BUILD)/pb_mp3_data.c: $(PB_MP3) $(PBTOP)/tools/embed_file.py
-	$(ECHO) "GEN $@"
-	$(Q)$(PYTHON) $(PBTOP)/tools/embed_file.py $@ $(PB_MP3)
 
 $(BUILD)/firmware.elf $(BUILD)/pybricks-virtualhub: $(LD_FILES) $(OBJ)
 	$(ECHO) "LINK $@"

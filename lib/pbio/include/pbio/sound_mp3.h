@@ -76,15 +76,11 @@ typedef struct {
 
 size_t pbio_sound_mp3_get_context_size(void);
 
-void pbio_sound_mp3_select(const uint8_t *data, uint32_t size, uint32_t index);
-
 pbio_error_t pbio_sound_mp3_select_file(const char *path);
 
 bool pbio_sound_mp3_is_selected(void);
 
 const char *pbio_sound_mp3_get_selected_path(void);
-
-uint32_t pbio_sound_mp3_get_selected_index(void);
 
 void pbio_sound_mp3_set_repeat(bool repeat);
 
@@ -97,8 +93,6 @@ bool pbio_sound_mp3_get_persist(void);
 pbio_error_t pbio_sound_mp3_play(void *context, uint32_t start_ms);
 
 uint32_t pbio_sound_mp3_get_position(void);
-
-pbio_error_t pbio_sound_mp3_start(void *context, const uint8_t *data, uint32_t size, uint32_t start_ms);
 
 pbio_error_t pbio_sound_mp3_start_file(void *context, const char *path, uint32_t start_ms);
 

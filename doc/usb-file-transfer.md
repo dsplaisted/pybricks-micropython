@@ -3,7 +3,7 @@
 USB is much faster than Bluetooth for sending files, but it was not finished
 when v4.0.1 was made, so it is off unless a build asks for it:
 
-    make PB_MP3=song.mp3 PB_USB=1
+    make PB_MP3=1 PB_USB=1
 
 Run `make clean` first. Changing the flag does not make anything rebuild by
 itself, so a build that skips it silently keeps the setting it had.

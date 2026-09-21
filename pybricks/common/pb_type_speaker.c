@@ -338,12 +338,7 @@ static MP_DEFINE_CONST_FUN_OBJ_KW(pb_type_Speaker_play_notes_obj, 1, pb_type_Spe
 
 #if PBIO_CONFIG_SOUND_MP3
 
-// Experimental: plays an MP3 file embedded in the firmware at build time.
-
-// Generated from the files given by PB_MP3 when building.
-extern const uint8_t *const pb_mp3_song_data[];
-extern const uint32_t pb_mp3_song_size[];
-extern const uint32_t pb_mp3_song_count;
+// Experimental: plays MP3 files kept on the external flash.
 
 // Decoder memory, kept here so the garbage collector won't free it while
 // playing. Playback is always stopped when the program ends.
@@ -379,23 +374,10 @@ static void pb_type_Speaker_start_mp3(uint32_t start_ms) {
     pb_assert(pbio_sound_mp3_play(pb_type_Speaker_mp3_memory(), start_ms));
 }
 
-// Experimental: chooses the song that the play methods will play.
-//
-// A whole number chooses a song built into the firmware. A string chooses a
-// file on the external flash.
+// Experimental: chooses the song that the play methods will play, by the
+// name of a file in the songs folder or a path to one elsewhere.
 static mp_obj_t pb_type_Speaker_select_mp3(mp_obj_t self_in, mp_obj_t song_in) {
-
-    if (mp_obj_is_str(song_in)) {
-        pb_assert(pbio_sound_mp3_select_file(mp_obj_str_get_str(song_in)));
-        return mp_const_none;
-    }
-
-    mp_int_t index = pb_obj_get_int(song_in);
-    if (index < 0 || (uint32_t)index >= pb_mp3_song_count) {
-        mp_raise_ValueError(MP_ERROR_TEXT("no such song"));
-    }
-
-    pbio_sound_mp3_select(pb_mp3_song_data[index], pb_mp3_song_size[index], index);
+    pb_assert(pbio_sound_mp3_select_file(mp_obj_str_get_str(song_in)));
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_2(pb_type_Speaker_select_mp3_obj, pb_type_Speaker_select_mp3);
@@ -403,16 +385,8 @@ static MP_DEFINE_CONST_FUN_OBJ_2(pb_type_Speaker_select_mp3_obj, pb_type_Speaker
 // Experimental: gets the song that was chosen, or None if there is none.
 static mp_obj_t pb_type_Speaker_mp3_selected(mp_obj_t self_in) {
 
-    if (!pbio_sound_mp3_is_selected()) {
-        return mp_const_none;
-    }
-
     const char *path = pbio_sound_mp3_get_selected_path();
-    if (path) {
-        return mp_obj_new_str(path, strlen(path));
-    }
-
-    return mp_obj_new_int_from_uint(pbio_sound_mp3_get_selected_index());
+    return path ? mp_obj_new_str(path, strlen(path)) : mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(pb_type_Speaker_mp3_selected_obj, pb_type_Speaker_mp3_selected);
 
@@ -445,17 +419,11 @@ static void pb_type_Speaker_mp3_songs_callback(const char *name, uint32_t size, 
 }
 #endif // PBIO_CONFIG_FLASH_FS
 
-// Experimental: lists the songs that can be chosen with select_mp3().
-//
-// The songs built into the firmware come first, as whole numbers, followed by
-// the paths of the MP3 files on the external flash, in order of name.
+// Experimental: lists the songs that can be chosen with select_mp3(), as the
+// paths of the MP3 files on the external flash, in order of name.
 static mp_obj_t pb_type_Speaker_mp3_songs(size_t n_args, const mp_obj_t *args) {
 
     mp_obj_t list = mp_obj_new_list(0, NULL);
-
-    for (uint32_t i = 0; i < pb_mp3_song_count; i++) {
-        mp_obj_list_append(list, mp_obj_new_int_from_uint(i));
-    }
 
     #if PBIO_CONFIG_FLASH_FS
     const char *dir = n_args > 1 ? mp_obj_str_get_str(args[1]) : PBIO_SOUND_MP3_DIR;

@@ -19,6 +19,12 @@ from pybricks.tools import wait
 VOLUME = 40
 
 hub = PrimeHub()
+
+# The first song on the hub, whichever that is.
+songs = hub.speaker.mp3_songs()
+if not songs:
+    print("No songs on the hub. Upload one to /pybricks/songs/ first.")
+    raise SystemExit
 hub.speaker.volume(VOLUME)
 
 print("Songs: {}. Left = first, right = second, center = stop.".format(hub.speaker.mp3_songs()))
@@ -29,11 +35,11 @@ while True:
     pressed = hub.buttons.pressed()
 
     if Button.LEFT in pressed:
-        hub.speaker.select_mp3(0)
+        hub.speaker.select_mp3(songs[0])
         hub.speaker.play_mp3()
         print("song 0")
     elif Button.RIGHT in pressed:
-        hub.speaker.select_mp3(1)
+        hub.speaker.select_mp3(songs[1 % len(songs)])
         hub.speaker.play_mp3()
         print("song 1")
     elif Button.CENTER in pressed:

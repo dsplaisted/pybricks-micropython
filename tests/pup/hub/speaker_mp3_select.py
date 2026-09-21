@@ -1,5 +1,5 @@
 """
-Hardware Module: Prime Hub or Inventor Hub, with firmware built with PB_MP3
+Hardware Module: Prime Hub or Inventor Hub, with firmware built with PB_MP3=1
 and at least one MP3 file uploaded to the external flash.
 
 Description: Checks the song selection API.
@@ -39,7 +39,7 @@ if hub.speaker.mp3_persist() is not False:
 
 # Choosing a song that is not there should be refused, leaving the previous
 # choice alone.
-for bad in (len(songs) + 10, "/no_such_song.mp3"):
+for bad in ("no_such_song.mp3", "/nowhere/no_such_song.mp3"):
     try:
         hub.speaker.select_mp3(bad)
         print("FAIL: selecting", bad, "was allowed")
