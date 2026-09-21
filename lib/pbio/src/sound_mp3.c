@@ -49,6 +49,9 @@ static void *pbio_sound_mp3_scratch;
 
 // Decoding is only attempted with at least this much data, unless the end of
 // the song has been reached.
+// Samples one granule of a frame makes, for each channel.
+#define GRANULE_SAMPLES (576)
+
 #define WINDOW_MIN_DECODE (2048)
 
 // Number of samples in each half of the double buffer. This is how much
@@ -83,6 +86,12 @@ static struct {
     bool loop;
     /** Whether playback continues when a user program ends. */
     bool persist;
+    /** Granules of the current frame still to decode, 0 between frames. */
+    uint32_t granules;
+    /** Which granule of the current frame comes next. */
+    uint32_t granule;
+    /** Channels of the current frame. */
+    uint32_t frame_channels;
     /** Number of decoded samples in the pcm buffer. */
     uint32_t pcm_count;
     /** Number of samples from the pcm buffer copied to the double buffer. */
@@ -341,7 +350,168 @@ static bool pbio_sound_mp3_rewind(void) {
  *
  * @return  @c false if there is no more audio, @c true otherwise.
  */
+/**
+ * Adds the time one piece of decoding took to the statistics.
+ *
+ * The longest is the longest single turn rather than the longest frame,
+ * which is the point of taking a frame apart.
+ */
+static void pbio_sound_mp3_count_decode(uint32_t decode_us) {
+
+    pbio_sound_mp3_stats_t *stats = &player.stats;
+
+    stats->decode_us_total += decode_us;
+
+    if (decode_us < stats->decode_us_min) {
+        stats->decode_us_min = decode_us;
+    }
+    if (decode_us > stats->decode_us_max) {
+        stats->decode_us_max = decode_us;
+    }
+}
+
+/**
+ * Prepares the next frame, leaving its samples to be decoded a granule at a
+ * time on the turns after this one.
+ *
+ * This is the part of decoding that reads the data: it finds the frame, reads
+ * what the frame says about itself, and gathers the bits belonging to it into
+ * the scratch space. Everything the granules need after that lives in memory
+ * that lasts between turns.
+ *
+ * @param [in]  data    The data to find a frame in.
+ * @param [in]  size    Size of @p data.
+ * @return              Bytes to move past, or 0 when there is no frame at all.
+ */
+static uint32_t pbio_sound_mp3_begin_frame(const uint8_t *data, uint32_t size) {
+
+    mp3dec_t *dec = &player.ctx->decoder;
+    mp3dec_scratch_t *scratch = MINIMP3_SCRATCH_PTR;
+
+    int i = 0;
+    int frame_size = 0;
+
+    player.granules = 0;
+
+    // A frame just like the last one follows where it said it would.
+    if (size > 4 && dec->header[0] == 0xff && hdr_compare(dec->header, data)) {
+        frame_size = hdr_frame_bytes(data, dec->free_format_bytes) + hdr_padding(data);
+        if (frame_size != (int)size &&
+            (frame_size + HDR_SIZE > (int)size || !hdr_compare(data, data + frame_size))) {
+            frame_size = 0;
+        }
+    }
+
+    // Otherwise look for one, which is also how playing from the middle of a
+    // file finds its feet.
+    if (!frame_size) {
+        memset(dec, 0, sizeof(mp3dec_t));
+        i = mp3d_find_frame(data, size, &dec->free_format_bytes, &frame_size);
+        if (!frame_size || i + frame_size > (int)size) {
+            return i;
+        }
+    }
+
+    const uint8_t *hdr = data + i;
+    memcpy(dec->header, hdr, HDR_SIZE);
+
+    // Only layer 3 is built in, so anything else is data to move past.
+    if (4 - HDR_GET_LAYER(hdr) != 3) {
+        return i + frame_size;
+    }
+
+    player.frame_channels = HDR_IS_MONO(hdr) ? 1 : 2;
+
+    player.stats.channels = player.frame_channels;
+    player.stats.bitrate_kbps = hdr_bitrate_kbps(hdr);
+    if (player.stats.sample_rate == 0) {
+        player.stats.sample_rate = hdr_sample_rate_hz(hdr);
+    }
+
+    bs_t bs_frame[1];
+    bs_init(bs_frame, hdr + HDR_SIZE, frame_size - HDR_SIZE);
+    if (HDR_IS_CRC(hdr)) {
+        get_bits(bs_frame, 16);
+    }
+
+    int main_data_begin = L3_read_side_info(bs_frame, scratch->gr_info, hdr);
+    if (main_data_begin < 0 || bs_frame->pos > bs_frame->limit) {
+        mp3dec_init(dec);
+        return i + frame_size;
+    }
+
+    // Some of what this frame needs was left by the ones before it. Until
+    // enough has built up, which is the case at the start of a file and after
+    // moving to the middle of one, the frame makes no sound of its own.
+    if (!L3_restore_reservoir(dec, bs_frame, scratch, main_data_begin)) {
+        L3_save_reservoir(dec, scratch);
+        return i + frame_size;
+    }
+
+    player.granules = HDR_TEST_MPEG1(hdr) ? 2 : 1;
+    player.granule = 0;
+    player.stats.frames++;
+
+    return i + frame_size;
+}
+
+/**
+ * Decodes one granule of the frame that was prepared, which is 576 samples
+ * for each channel.
+ *
+ * @return  Number of samples for each channel.
+ */
+static uint32_t pbio_sound_mp3_decode_granule(void) {
+
+    mp3dec_t *dec = &player.ctx->decoder;
+    mp3dec_scratch_t *scratch = MINIMP3_SCRATCH_PTR;
+    uint32_t channels = player.frame_channels;
+
+    memset(scratch->grbuf[0], 0, 576 * 2 * sizeof(float));
+    L3_decode(dec, scratch, scratch->gr_info + player.granule * channels, channels);
+    mp3d_synth_granule(dec->qmf_state, scratch->grbuf[0], 18, channels,
+        player.ctx->pcm, scratch->syn[0]);
+
+    if (++player.granule >= player.granules) {
+        // What is left over belongs to the frames that follow.
+        L3_save_reservoir(dec, scratch);
+        player.granules = 0;
+    }
+
+    return GRANULE_SAMPLES;
+}
+
+/**
+ * Does one piece of decoding: either prepares the next frame, or turns one
+ * granule of the prepared frame into samples.
+ *
+ * Doing a whole frame at once takes as long as the control loop has between
+ * turns, so the work is handed out in pieces this size instead.
+ *
+ * @return  Whether there is more to play.
+ */
 static bool pbio_sound_mp3_decode_frame(void) {
+
+    uint32_t start_us;
+
+    // Part way through a frame, so carry on with it.
+    if (player.granules > 0) {
+        start_us = pbdrv_clock_get_us();
+        uint32_t samples = pbio_sound_mp3_decode_granule();
+        pbio_sound_mp3_count_decode(pbdrv_clock_get_us() - start_us);
+
+        // Mix stereo to mono in place.
+        mp3d_sample_t *pcm = player.ctx->pcm;
+        if (player.frame_channels == 2) {
+            for (uint32_t i = 0; i < samples; i++) {
+                pcm[i] = (pcm[2 * i] + pcm[2 * i + 1]) / 2;
+            }
+        }
+
+        player.pcm_count = samples;
+        player.pcm_pos = 0;
+        return true;
+    }
 
     uint32_t available;
     const uint8_t *data = pbio_sound_mp3_source(&available);
@@ -353,13 +523,12 @@ static bool pbio_sound_mp3_decode_frame(void) {
         return pbio_sound_mp3_rewind();
     }
 
-    mp3dec_frame_info_t info;
-    uint32_t start_us = pbdrv_clock_get_us();
-    int samples = mp3dec_decode_frame(&player.ctx->decoder, data, available, player.ctx->pcm, &info);
-    uint32_t decode_us = pbdrv_clock_get_us() - start_us;
+    start_us = pbdrv_clock_get_us();
+    uint32_t frame_bytes = pbio_sound_mp3_begin_frame(data, available);
+    pbio_sound_mp3_count_decode(pbdrv_clock_get_us() - start_us);
 
     // No frames in the remaining data.
-    if (info.frame_bytes == 0) {
+    if (frame_bytes == 0) {
         pbio_sound_mp3_consume(available);
         // Try again from the start if looping.
         if (!player.loop) {
@@ -368,39 +537,9 @@ static bool pbio_sound_mp3_decode_frame(void) {
         return pbio_sound_mp3_rewind();
     }
 
-    // Skip the frame and any data before it.
-    pbio_sound_mp3_consume(info.frame_bytes);
-
-    // Skipped data such as tags, so no samples to add.
-    if (samples == 0) {
-        return true;
-    }
-
-    pbio_sound_mp3_stats_t *stats = &player.stats;
-    stats->frames++;
-    stats->decode_us_total += decode_us;
-    if (decode_us < stats->decode_us_min) {
-        stats->decode_us_min = decode_us;
-    }
-    if (decode_us > stats->decode_us_max) {
-        stats->decode_us_max = decode_us;
-    }
-    stats->bitrate_kbps = info.bitrate_kbps;
-    stats->channels = info.channels;
-    if (stats->sample_rate == 0) {
-        stats->sample_rate = info.hz;
-    }
-
-    // Mix stereo to mono in place.
-    mp3d_sample_t *pcm = player.ctx->pcm;
-    if (info.channels == 2) {
-        for (int i = 0; i < samples; i++) {
-            pcm[i] = (pcm[2 * i] + pcm[2 * i + 1]) / 2;
-        }
-    }
-
-    player.pcm_count = samples;
-    player.pcm_pos = 0;
+    // The bits belonging to the frame have been gathered, so the data they
+    // came from is no longer needed.
+    pbio_sound_mp3_consume(frame_bytes);
     return true;
 }
 
