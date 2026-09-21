@@ -74,11 +74,11 @@ for tier in TIERS:
     s = hub.speaker.mp3_stats()
 
     print("{}: {} Hz, {} kbit/s".format(tier, s["sample_rate"], s["bitrate_kbps"]))
-    print(
-        "  decode per frame: avg {:.2f} ms, max {:.2f} ms".format(
-            s["decode_us_avg"] / 1000, s["decode_us_max"] / 1000
-        )
-    )
+    # The average is for a whole frame, while the longest is for one piece
+    # of decoding, so the average is the larger of the two once a frame is
+    # decoded in pieces.
+    print("  decode per frame: {:.2f} ms".format(s["decode_us_avg"] / 1000))
+    print("  longest single decode: {:.2f} ms".format(s["decode_us_max"] / 1000))
     print("  processor used by decoding: {:.1f}%".format(s["cpu_pct"]))
     print(
         "  longest background turn: {:.2f} ms, refill allowed {:.0f} ms".format(
