@@ -490,7 +490,10 @@ static void pbio_sound_mp3_measure_levels(const float *granule) {
             count += GRANULE_BAND_SAMPLES;
         }
 
-        uint32_t level = (uint32_t)(total / count);
+        // The numbers in a granule are small fractions, so they are scaled
+        // up to survive being made whole. A band would have to be louder
+        // than anything an MP3 can hold to reach the top of this.
+        uint32_t level = (uint32_t)(total / count * PBIO_SOUND_MP3_LEVEL_SCALE);
         player.levels[i] = level > UINT16_MAX ? UINT16_MAX : level;
     }
 }

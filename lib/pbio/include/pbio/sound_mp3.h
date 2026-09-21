@@ -41,6 +41,12 @@ pbio_error_t pbio_sound_mp3_resolve_path(const char *path, char *buffer, size_t 
 #define PBIO_SOUND_MP3_LEVELS (5)
 
 /**
+ * What the loudness of each part of the range is multiplied by, so that it
+ * can be given as a whole number.
+ */
+#define PBIO_SOUND_MP3_LEVEL_SCALE (65536)
+
+/**
  * Playback and timing statistics.
  */
 typedef struct {

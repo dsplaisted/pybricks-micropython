@@ -65,9 +65,9 @@ volume_until = 0
 number_until = 0
 next_draw = 0
 
-# The loudest the music has been lately, so that the bars fill the display
-# whatever the song and whatever it was encoded from.
-loudest = 1
+# The loudest each part of the range has been lately, so that the bars fill
+# the display whatever the song and whatever it was encoded from.
+loudest = [1, 1, 1, 1, 1]
 
 
 def track_of(song):
@@ -105,21 +105,28 @@ def show_levels():
 
     levels = hub.speaker.mp3_levels()
 
-    top = max(levels)
-    if top > loudest:
-        loudest = top
-    else:
-        # Come back down slowly, so a quiet passage fills the display only
-        # after it has been quiet for a while rather than at once.
-        loudest = loudest * 0.95 + top * 0.05
-    if loudest < 1:
-        loudest = 1
+    # Music holds far less at the top of the range than at the bottom, so a
+    # single scale would leave the right hand columns dark. Each column is
+    # measured against its own loudest instead, and the quietest columns are
+    # held back so that near silence does not fill them.
+    for i in range(5):
+        if levels[i] > loudest[i]:
+            loudest[i] = levels[i]
+        else:
+            # Come down slowly, so a quiet passage fills the display only
+            # after it has been quiet for a while rather than at once.
+            loudest[i] = loudest[i] * 0.95 + levels[i] * 0.05
 
+    floor = max(loudest) / 10
     rows = []
     for row in range(5):
         # The top row is lit only by the tallest bars.
         height = 5 - row
-        rows.append([100 if level * 5 / loudest >= height else 0 for level in levels])
+        lit = []
+        for i in range(5):
+            scale = loudest[i] if loudest[i] > floor else floor
+            lit.append(100 if scale > 0 and levels[i] * 5 / scale >= height else 0)
+        rows.append(lit)
 
     hub.display.icon(rows)
     shown = None
