@@ -104,6 +104,8 @@ static struct {
     bool paused;
     /** Start of the statistics period. */
     uint32_t start_us;
+    /** How far into the song playback began, for reporting the position. */
+    uint32_t start_ms;
     pbio_sound_mp3_stats_t stats;
 } player;
 
@@ -273,23 +275,24 @@ bool pbio_sound_mp3_get_persist(void) {
 }
 
 /**
- * Plays the chosen song from the beginning.
+ * Plays the chosen song.
  *
  * @param [in]  context     Memory of ::pbio_sound_mp3_get_context_size bytes.
+ * @param [in]  start_ms    How far into the song to begin, or 0 for the start.
  * @return                  ::PBIO_ERROR_INVALID_OP if no song is chosen,
  *                          otherwise what starting it gives.
  */
-pbio_error_t pbio_sound_mp3_play(void *context) {
+pbio_error_t pbio_sound_mp3_play(void *context, uint32_t start_ms) {
 
     if (!selection.valid) {
         return PBIO_ERROR_INVALID_OP;
     }
 
     if (selection.from_file) {
-        return pbio_sound_mp3_start_file(context, selection.path);
+        return pbio_sound_mp3_start_file(context, selection.path, start_ms);
     }
 
-    return pbio_sound_mp3_start(context, selection.data, selection.size);
+    return pbio_sound_mp3_start(context, selection.data, selection.size, start_ms);
 }
 
 
@@ -375,6 +378,7 @@ static bool pbio_sound_mp3_rewind(void) {
     player.window_size = 0;
     player.window_pos = 0;
     player.end_of_file = false;
+    player.start_ms = 0;
     return true;
 }
 
@@ -636,15 +640,61 @@ static pbio_error_t pbio_sound_mp3_start_common(void *context, bool loop, bool p
 }
 
 /**
- * Starts playing MP3 data from memory.
+ * Works out how far into the data a moment in the song is.
+ *
+ * The frames of a song encoded at a constant rate are all the same size, so
+ * how dense the first one is says where any moment lives. A song encoded at a
+ * varying rate would only be found approximately this way.
+ *
+ * @param [in]  context     The decoder memory, used for the scratch space.
+ * @param [in]  data        The start of the song.
+ * @param [in]  size        How much of the song @p data holds.
+ * @param [in]  start_ms    The moment to look for.
+ * @return                  Offset in bytes, or 0 if the rate can't be read.
  */
-pbio_error_t pbio_sound_mp3_start(void *context, const uint8_t *data, uint32_t size) {
+static uint32_t pbio_sound_mp3_offset_of(void *context, const uint8_t *data, uint32_t size, uint32_t start_ms) {
+
+    pbio_sound_mp3_context_t *ctx = context;
+
+    pbio_sound_mp3_scratch = &ctx->scratch;
+    mp3dec_init(&ctx->decoder);
+
+    // Passing no output asks for the frame to be read but not decoded.
+    mp3dec_frame_info_t info = { 0 };
+    mp3dec_decode_frame(&ctx->decoder, data, size, NULL, &info);
+
+    if (info.bitrate_kbps == 0) {
+        return 0;
+    }
+
+    // Bits per second over eight is bytes per millisecond.
+    return start_ms * info.bitrate_kbps / 8;
+}
+
+/**
+ * Starts playing MP3 data from memory.
+ *
+ * @param [in]  context     Memory of ::pbio_sound_mp3_get_context_size bytes.
+ * @param [in]  data        The song.
+ * @param [in]  size        Size of @p data.
+ * @param [in]  start_ms    How far into the song to begin, or 0 for the start.
+ *                          A moment past the end starts from the beginning.
+ */
+pbio_error_t pbio_sound_mp3_start(void *context, const uint8_t *data, uint32_t size, uint32_t start_ms) {
 
     pbio_sound_mp3_stop();
 
     memset(&player, 0, sizeof(player));
     player.data = data;
     player.size = size;
+
+    if (start_ms > 0) {
+        uint32_t offset = pbio_sound_mp3_offset_of(context, data, size, start_ms);
+        if (offset > 0 && offset < size) {
+            player.pos = offset;
+            player.start_ms = start_ms;
+        }
+    }
 
     return pbio_sound_mp3_start_common(context, selection.repeat, selection.persist);
 }
@@ -657,11 +707,13 @@ pbio_error_t pbio_sound_mp3_start(void *context, const uint8_t *data, uint32_t s
  *
  * @param [in]  context     Memory of ::pbio_sound_mp3_get_context_size bytes.
  * @param [in]  path        The file to play.
+ * @param [in]  start_ms    How far into the song to begin, or 0 for the start.
+ *                          A moment past the end starts from the beginning.
  * @return                  ::PBIO_ERROR_FAILED if the file can't be opened,
  *                          ::PBIO_ERROR_INVALID_ARG if it has no audio,
  *                          otherwise ::PBIO_SUCCESS.
  */
-pbio_error_t pbio_sound_mp3_start_file(void *context, const char *path) {
+pbio_error_t pbio_sound_mp3_start_file(void *context, const char *path, uint32_t start_ms) {
 
     pbio_sound_mp3_stop();
 
@@ -674,6 +726,32 @@ pbio_error_t pbio_sound_mp3_start_file(void *context, const char *path) {
         return err;
     }
     player.size = size;
+
+    if (start_ms > 0) {
+        // How dense the song is has to be read from the song itself, so the
+        // start of the file is read before deciding where to carry on from.
+        pbio_sound_mp3_context_t *ctx = context;
+        uint32_t size_read = 0;
+        uint32_t offset = 0;
+
+        if (pbio_flash_fs_stream_read(ctx->window, WINDOW_READ_SIZE, &size_read) == PBIO_SUCCESS) {
+            offset = pbio_sound_mp3_offset_of(context, ctx->window, size_read, start_ms);
+        }
+
+        if (offset > 0 && offset < size) {
+            player.start_ms = start_ms;
+        } else {
+            offset = 0;
+        }
+
+        // Reading to find that out moved through the file, so go where the
+        // song is meant to carry on from, which is the start if it is not.
+        err = pbio_flash_fs_stream_seek(offset);
+        if (err != PBIO_SUCCESS) {
+            pbio_flash_fs_stream_close();
+            return err;
+        }
+    }
 
     err = pbio_sound_mp3_start_common(context, selection.repeat, selection.persist);
     if (err != PBIO_SUCCESS) {
@@ -760,6 +838,20 @@ bool pbio_sound_mp3_stop_for_program_end(void) {
     pbio_sound_mp3_stop_streaming();
     pbio_sound_mp3_close_file();
     return false;
+}
+
+/**
+ * Gets how far into the song playback has got, counting from the start of
+ * the song rather than from where this playback began.
+ *
+ * @return  Position in milliseconds.
+ */
+uint32_t pbio_sound_mp3_get_position(void) {
+
+    uint32_t elapsed_us = player.streaming ?
+        pbdrv_clock_get_us() - player.start_us : player.stats.elapsed_us;
+
+    return player.start_ms + elapsed_us / 1000;
 }
 
 /**

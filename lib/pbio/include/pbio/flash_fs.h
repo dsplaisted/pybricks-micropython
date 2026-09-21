@@ -74,6 +74,8 @@ pbio_error_t pbio_flash_fs_stream_open(const char *path, uint32_t *size);
 
 pbio_error_t pbio_flash_fs_stream_read(uint8_t *buffer, uint32_t size, uint32_t *size_read);
 
+pbio_error_t pbio_flash_fs_stream_seek(uint32_t offset);
+
 pbio_error_t pbio_flash_fs_stream_rewind(void);
 
 void pbio_flash_fs_stream_close(void);

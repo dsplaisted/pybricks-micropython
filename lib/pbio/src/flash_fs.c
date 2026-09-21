@@ -455,13 +455,18 @@ pbio_error_t pbio_flash_fs_stream_read(uint8_t *buffer, uint32_t size, uint32_t 
  * @return  ::PBIO_ERROR_INVALID_OP if no file is open, ::PBIO_ERROR_FAILED
  *          if it can't be rewound, otherwise ::PBIO_SUCCESS.
  */
-pbio_error_t pbio_flash_fs_stream_rewind(void) {
+pbio_error_t pbio_flash_fs_stream_seek(uint32_t offset) {
 
     if (!stream_open) {
         return PBIO_ERROR_INVALID_OP;
     }
 
-    return lfs2_file_seek(&lfs, &stream_file, 0, LFS2_SEEK_SET) < 0 ? PBIO_ERROR_FAILED : PBIO_SUCCESS;
+    return lfs2_file_seek(&lfs, &stream_file, offset, LFS2_SEEK_SET) < 0 ?
+           PBIO_ERROR_FAILED : PBIO_SUCCESS;
+}
+
+pbio_error_t pbio_flash_fs_stream_rewind(void) {
+    return pbio_flash_fs_stream_seek(0);
 }
 
 /**

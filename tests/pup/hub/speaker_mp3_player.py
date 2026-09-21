@@ -14,6 +14,10 @@ Controls:
     left, right     hold to turn the volume down or up
     Bluetooth       stop this program
 
+Songs named like "01 - Title-24k.mp3" and "01 - Title-96k.mp3" are the same
+song at different qualities. Moving between those carries on from the same
+moment instead of starting over, so the two can be compared by ear.
+
 The display shows the number of the song, and the volume while it is being
 changed. A volume of 100 shows as > because the display only holds two
 digits. The name of each song is printed as it is chosen, so it can be read
@@ -56,6 +60,17 @@ shown = None
 volume_until = 0
 
 
+def track_of(song):
+    # Everything before the last dash is the song itself, so that the same
+    # song at another quality can be recognised.
+    name = name_of(song)
+    cut = -1
+    for i in range(len(name)):
+        if name[i] == "-":
+            cut = i
+    return name[:cut] if cut > 0 else name
+
+
 def name_of(song):
     # A song on the flash is a path, and a song built into the firmware is a
     # number. Only the last part of the path is worth reading out.
@@ -81,6 +96,11 @@ def show(value):
 def select(at, play):
     global index
 
+    was = songs[index]
+    # Where the song has got to, before choosing another one loses it.
+    at_ms = hub.speaker.mp3_position()
+    was_paused = hub.speaker.mp3_paused()
+
     index = at % len(songs)
     song = songs[index]
 
@@ -89,7 +109,14 @@ def select(at, play):
     show(index + 1)
 
     if play:
-        hub.speaker.play_mp3()
+        # The same song at another quality carries on from the same moment,
+        # which is the only way to hear the difference between them.
+        same = track_of(song) == track_of(was)
+        hub.speaker.play_mp3(at_ms if same else 0)
+    elif was_paused:
+        # Choosing a song does not disturb one that is paused, so carrying on
+        # would bring back the old song rather than this one.
+        hub.speaker.stop_mp3()
 
 
 def set_volume(value):
@@ -122,6 +149,13 @@ repeated = False
 
 while True:
     pressed = hub.buttons.pressed()
+
+    # The hub knows whether a song is going, and it keeps going across
+    # programs, so asking beats remembering: a song left playing by an
+    # earlier run would otherwise not be recognised, and choosing another
+    # song would rename what is heard without changing it.
+    if hub.speaker.mp3_playing():
+        playing = True
 
     if Button.CENTER in pressed:
         playing = hub.speaker.play_pause_mp3()

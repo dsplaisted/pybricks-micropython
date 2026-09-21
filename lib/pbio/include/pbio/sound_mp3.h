@@ -94,11 +94,13 @@ void pbio_sound_mp3_set_persist(bool persist);
 
 bool pbio_sound_mp3_get_persist(void);
 
-pbio_error_t pbio_sound_mp3_play(void *context);
+pbio_error_t pbio_sound_mp3_play(void *context, uint32_t start_ms);
 
-pbio_error_t pbio_sound_mp3_start(void *context, const uint8_t *data, uint32_t size);
+uint32_t pbio_sound_mp3_get_position(void);
 
-pbio_error_t pbio_sound_mp3_start_file(void *context, const char *path);
+pbio_error_t pbio_sound_mp3_start(void *context, const uint8_t *data, uint32_t size, uint32_t start_ms);
+
+pbio_error_t pbio_sound_mp3_start_file(void *context, const char *path, uint32_t start_ms);
 
 void pbio_sound_mp3_stop(void);
 

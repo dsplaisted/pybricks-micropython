@@ -366,8 +366,8 @@ static void *pb_type_Speaker_mp3_memory(void) {
     return MP_STATE_VM(pb_mp3_context);
 }
 
-// Starts the chosen song from the beginning.
-static void pb_type_Speaker_start_mp3(void) {
+// Starts the chosen song, from the beginning unless told otherwise.
+static void pb_type_Speaker_start_mp3(uint32_t start_ms) {
 
     if (!pbio_sound_mp3_is_selected()) {
         mp_raise_msg(&mp_type_RuntimeError, MP_ERROR_TEXT("no song selected"));
@@ -376,7 +376,7 @@ static void pb_type_Speaker_start_mp3(void) {
     // Stop first, so the old memory is no longer used when replaced.
     pbio_sound_mp3_stop();
 
-    pb_assert(pbio_sound_mp3_play(pb_type_Speaker_mp3_memory()));
+    pb_assert(pbio_sound_mp3_play(pb_type_Speaker_mp3_memory(), start_ms));
 }
 
 // Experimental: chooses the song that the play methods will play.
@@ -516,12 +516,27 @@ static mp_obj_t pb_type_Speaker_mp3_persist(size_t n_args, const mp_obj_t *args)
 }
 static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(pb_type_Speaker_mp3_persist_obj, 1, 2, pb_type_Speaker_mp3_persist);
 
-// Experimental: plays the chosen song from the beginning.
-static mp_obj_t pb_type_Speaker_play_mp3(mp_obj_t self_in) {
-    pb_type_Speaker_start_mp3();
+// Experimental: plays the chosen song, from the beginning unless a moment to
+// start at is given, which is how the same song at another quality can carry
+// on where the previous one had got to.
+static mp_obj_t pb_type_Speaker_play_mp3(size_t n_args, const mp_obj_t *args) {
+
+    mp_int_t start = n_args > 1 ? pb_obj_get_int(args[1]) : 0;
+    if (start < 0) {
+        start = 0;
+    }
+
+    pb_type_Speaker_start_mp3(start);
     return mp_const_none;
 }
-static MP_DEFINE_CONST_FUN_OBJ_1(pb_type_Speaker_play_mp3_obj, pb_type_Speaker_play_mp3);
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(pb_type_Speaker_play_mp3_obj, 1, 2, pb_type_Speaker_play_mp3);
+
+// Experimental: gets how far into the song playback has got, in milliseconds,
+// counting from the start of the song however it was started.
+static mp_obj_t pb_type_Speaker_mp3_position(mp_obj_t self_in) {
+    return mp_obj_new_int_from_uint(pbio_sound_mp3_get_position());
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(pb_type_Speaker_mp3_position_obj, pb_type_Speaker_mp3_position);
 
 static mp_obj_t pb_type_Speaker_pause_mp3(mp_obj_t self_in) {
     pbio_sound_mp3_pause();
@@ -562,7 +577,7 @@ static mp_obj_t pb_type_Speaker_play_pause_mp3(mp_obj_t self_in) {
     } else if (pbio_sound_mp3_is_paused()) {
         pbio_sound_mp3_resume();
     } else {
-        pb_type_Speaker_start_mp3();
+        pb_type_Speaker_start_mp3(0);
     }
 
     // Tells the caller which way it went, for showing it on the display.
@@ -628,6 +643,7 @@ static const mp_rom_map_elem_t pb_type_Speaker_locals_dict_table[] = {
     { MP_ROM_QSTR(MP_QSTR_mp3_repeat), MP_ROM_PTR(&pb_type_Speaker_mp3_repeat_obj) },
     { MP_ROM_QSTR(MP_QSTR_mp3_persist), MP_ROM_PTR(&pb_type_Speaker_mp3_persist_obj) },
     { MP_ROM_QSTR(MP_QSTR_play_mp3), MP_ROM_PTR(&pb_type_Speaker_play_mp3_obj) },
+    { MP_ROM_QSTR(MP_QSTR_mp3_position), MP_ROM_PTR(&pb_type_Speaker_mp3_position_obj) },
     { MP_ROM_QSTR(MP_QSTR_play_pause_mp3), MP_ROM_PTR(&pb_type_Speaker_play_pause_mp3_obj) },
     { MP_ROM_QSTR(MP_QSTR_mp3_playing), MP_ROM_PTR(&pb_type_Speaker_mp3_playing_obj) },
     { MP_ROM_QSTR(MP_QSTR_mp3_paused), MP_ROM_PTR(&pb_type_Speaker_mp3_paused_obj) },
