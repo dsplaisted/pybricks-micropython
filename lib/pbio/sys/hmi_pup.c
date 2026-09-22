@@ -43,28 +43,26 @@ pbio_light_matrix_t *pbsys_hub_light_matrix;
 
 #define LIGHT_MATRIX_SIZE (5)
 
-// There are 5 + 4 + 3 + 2 + 1 ways to light adjacent pixels on the bottom row.
-_Static_assert(PBSYS_CONFIG_HMI_NUM_SLOTS <= 15, "too many slots for the light matrix");
+// A pixel on or a pixel off, at each of the positions on the bottom row.
+_Static_assert(PBSYS_CONFIG_HMI_NUM_SLOTS <= 2 * 5, "too many slots for the light matrix");
 
 /**
  * Gets which pixels on the bottom row indicate the selected slot.
  *
- * The first 5 slots light one pixel each, from left to right. The next 4
- * slots light 2 adjacent pixels, the next 3 slots light 3 adjacent pixels,
- * and so on, until the 15th slot lights the whole row.
+ * The first 5 slots light one pixel each, from left to right. The next 5
+ * show the same from the other side: every pixel lit but one, with the dark
+ * one moving from left to right.
  *
  * @param [in]  slot    Selected slot (zero-indexed).
- * @param [out] start   First lit column.
- * @param [out] width   Number of lit columns.
+ * @return              A bit for each column, the leftmost first.
  */
-static void light_matrix_get_slot_indicator(uint8_t slot, uint8_t *start, uint8_t *width) {
-    *start = slot;
-    *width = 1;
-    // Each width has (LIGHT_MATRIX_SIZE + 1 - width) possible positions.
-    while (*width < LIGHT_MATRIX_SIZE && *start > LIGHT_MATRIX_SIZE - *width) {
-        *start -= LIGHT_MATRIX_SIZE + 1 - *width;
-        (*width)++;
+static uint8_t light_matrix_get_slot_indicator(uint8_t slot) {
+    const uint8_t all = (1 << LIGHT_MATRIX_SIZE) - 1;
+
+    if (slot < LIGHT_MATRIX_SIZE) {
+        return 1 << slot;
     }
+    return all & ~(1 << (slot - LIGHT_MATRIX_SIZE));
 }
 
 /**
@@ -73,14 +71,12 @@ static void light_matrix_get_slot_indicator(uint8_t slot, uint8_t *start, uint8_
  * @param brightness   Brightness (0--100%).
  */
 static void light_matrix_show_idle_ui(uint8_t brightness) {
-    uint8_t slot_start;
-    uint8_t slot_width;
-    light_matrix_get_slot_indicator(pbsys_status_get_selected_slot(), &slot_start, &slot_width);
+    uint8_t slot = light_matrix_get_slot_indicator(pbsys_status_get_selected_slot());
 
     for (uint8_t r = 0; r < LIGHT_MATRIX_SIZE; r++) {
         for (uint8_t c = 0; c < LIGHT_MATRIX_SIZE; c++) {
             bool is_on = r < 3 && c > 0 && c < 4;
-            is_on |= (r == 4 && c >= slot_start && c < slot_start + slot_width);
+            is_on |= (r == 4 && (slot & (1 << c)));
             pbio_light_matrix_set_pixel(pbsys_hub_light_matrix, r, c, is_on ? brightness : 0, true);
         }
     }
