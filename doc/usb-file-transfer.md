@@ -45,3 +45,5 @@ where they would take `ble`:
     pybricksdev files list usb /pybricks/songs
     pybricksdev files put usb song.mp3 /pybricks/songs/
     pybricksdev run usb program.py
+
+See doc/songs.md for what to encode songs as before sending them.
